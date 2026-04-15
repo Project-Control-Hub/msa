@@ -1,0 +1,18 @@
+rootProject.name = 'pch-msa'
+
+// ── 공유 라이브러리 ──
+include 'pch-common'
+
+// ── 인프라 컴포넌트 ──
+include 'pch-gateway'
+include 'pch-discovery'
+
+// ── 비즈니스 서비스 ──
+include 'pch-auth-service'
+include 'pch-project-service'
+include 'pch-issue-service'
+include 'pch-board-report-service'
+include 'pch-search-service'
+include 'pch-notification-service'
+include 'pch-file-service'
+include 'pch-integration-service'

@@ -1,0 +1,23 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: pch-discovery
+
+# ── Eureka Server 설정 ──
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+  server:
+    # 개발 환경에서 self-preservation 비활성화
+    enable-self-preservation: ${EUREKA_SELF_PRESERVATION:false}
+    eviction-interval-timer-in-ms: 5000
+
+# ── Actuator ──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info

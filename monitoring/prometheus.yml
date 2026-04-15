@@ -1,0 +1,65 @@
+# Prometheus — PCH MSA 메트릭 수집 설정
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # API Gateway
+  - job_name: 'pch-gateway'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+
+  # Discovery Server
+  - job_name: 'pch-discovery'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8761']
+
+  # Auth Service
+  - job_name: 'pch-auth-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+
+  # Project Service
+  - job_name: 'pch-project-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+
+  # Issue Service
+  - job_name: 'pch-issue-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8083']
+
+  # Board & Report Service
+  - job_name: 'pch-board-report-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8084']
+
+  # Search Service
+  - job_name: 'pch-search-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8085']
+
+  # Notification Service
+  - job_name: 'pch-notification-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8086']
+
+  # File Service
+  - job_name: 'pch-file-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8087']
+
+  # Integration Service
+  - job_name: 'pch-integration-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8088']

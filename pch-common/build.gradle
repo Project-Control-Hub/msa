@@ -1,0 +1,11 @@
+// pch-common: 공유 라이브러리 (Spring Boot 플러그인 없이 순수 JAR)
+// 모든 서비스 모듈이 이 라이브러리를 의존한다.
+
+dependencies {
+    // Validation (DTO 검증용)
+    implementation 'jakarta.validation:jakarta.validation-api'
+
+    // Jackson (이벤트/DTO 직렬화)
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+}

@@ -1,0 +1,135 @@
+server:
+  port: 8000
+
+spring:
+  application:
+    name: pch-gateway
+
+  cloud:
+    gateway:
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+            allowed-methods: "*"
+            allowed-headers: "*"
+            allow-credentials: true
+            max-age: 3600
+
+      # ── 서비스 라우팅 규칙 ──
+      routes:
+        # Auth Service
+        - id: auth-service
+          uri: lb://pch-auth-service
+          predicates:
+            - Path=/api/auth/**
+        - id: auth-users
+          uri: lb://pch-auth-service
+          predicates:
+            - Path=/api/v1/users/**
+
+        # Project Service
+        - id: project-service
+          uri: lb://pch-project-service
+          predicates:
+            - Path=/api/v1/projects/**
+        - id: sprint-service
+          uri: lb://pch-project-service
+          predicates:
+            - Path=/api/v1/sprints/**
+        - id: version-service
+          uri: lb://pch-project-service
+          predicates:
+            - Path=/api/v1/versions/**
+
+        # Issue Service
+        - id: issue-service
+          uri: lb://pch-issue-service
+          predicates:
+            - Path=/api/v1/issues/**
+        - id: comment-service
+          uri: lb://pch-issue-service
+          predicates:
+            - Path=/api/v1/comments/**
+        - id: audit-log-service
+          uri: lb://pch-issue-service
+          predicates:
+            - Path=/api/v1/audit-logs/**
+
+        # Board & Report Service
+        - id: dashboard-service
+          uri: lb://pch-board-report-service
+          predicates:
+            - Path=/api/v1/dashboards/**
+        - id: report-service
+          uri: lb://pch-board-report-service
+          predicates:
+            - Path=/api/v1/projects/*/reports/**
+
+        # Search Service (JQL)
+        - id: search-service
+          uri: lb://pch-search-service
+          predicates:
+            - Path=/api/v1/projects/*/jql/**
+
+        # Notification Service
+        - id: notification-service
+          uri: lb://pch-notification-service
+          predicates:
+            - Path=/api/v1/notifications/**
+
+        # File Service
+        - id: file-service
+          uri: lb://pch-file-service
+          predicates:
+            - Path=/api/v1/attachments/**
+        - id: file-issue-attachments
+          uri: lb://pch-file-service
+          predicates:
+            - Path=/api/v1/issues/*/attachments/**
+
+        # Integration Service
+        - id: integration-service
+          uri: lb://pch-integration-service
+          predicates:
+            - Path=/api/v1/integrations/**
+
+# ── Eureka Client ──
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+
+# ── JWT 검증 설정 ──
+jwt:
+  secret: ${JWT_SECRET:dev-secret-key-must-be-at-least-32-characters-long}
+
+# ── Actuator ──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, gateway
+  endpoint:
+    health:
+      show-details: when-authorized
+    gateway:
+      enabled: true
+
+# ── Resilience4j (Circuit Breaker) ──
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10000
+        permitted-number-of-calls-in-half-open-state: 3
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 3s

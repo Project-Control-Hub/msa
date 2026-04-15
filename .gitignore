@@ -1,0 +1,43 @@
+# ── Build ──
+build/
+out/
+*.class
+*.jar
+*.war
+
+# ── Gradle ──
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ── IDE ──
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Logs ──
+logs/
+*.log
+
+# ── Environment ──
+.env
+.env.local
+.env.*.local
+
+# ── Docker volumes ──
+docker/*-data/
+
+# ── QueryDSL generated ──
+**/generated/
+
+# ── Data ──
+data/

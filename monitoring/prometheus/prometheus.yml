@@ -1,0 +1,94 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert-rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # ── Spring Boot 서비스 ──
+  - job_name: "pch-gateway"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["pch-gateway:8000"]
+        labels:
+          service: gateway
+
+  - job_name: "pch-auth-service"
+    metrics_path: /auth/actuator/prometheus
+    static_configs:
+      - targets: ["pch-auth-service:8081"]
+        labels:
+          service: auth
+
+  - job_name: "pch-project-service"
+    metrics_path: /project/actuator/prometheus
+    static_configs:
+      - targets: ["pch-project-service:8082"]
+        labels:
+          service: project
+
+  - job_name: "pch-issue-service"
+    metrics_path: /issue/actuator/prometheus
+    static_configs:
+      - targets: ["pch-issue-service:8083"]
+        labels:
+          service: issue
+
+  - job_name: "pch-search-service"
+    metrics_path: /search/actuator/prometheus
+    static_configs:
+      - targets: ["pch-search-service:8084"]
+        labels:
+          service: search
+
+  - job_name: "pch-board-report-service"
+    metrics_path: /board/actuator/prometheus
+    static_configs:
+      - targets: ["pch-board-report-service:8085"]
+        labels:
+          service: board-report
+
+  - job_name: "pch-file-service"
+    metrics_path: /file/actuator/prometheus
+    static_configs:
+      - targets: ["pch-file-service:8086"]
+        labels:
+          service: file
+
+  - job_name: "pch-notification-service"
+    metrics_path: /notification/actuator/prometheus
+    static_configs:
+      - targets: ["pch-notification-service:8087"]
+        labels:
+          service: notification
+
+  # ── 인프라 Exporter ──
+  - job_name: "mysql-exporter"
+    static_configs:
+      - targets: ["mysql-exporter:9104"]
+        labels:
+          service: mysql
+
+  - job_name: "redis-exporter"
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+        labels:
+          service: redis
+
+  - job_name: "kafka-exporter"
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+        labels:
+          service: kafka
+
+  - job_name: "elasticsearch-exporter"
+    static_configs:
+      - targets: ["es-exporter:9114"]
+        labels:
+          service: elasticsearch

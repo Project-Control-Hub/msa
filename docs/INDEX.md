@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 52개 | **마지막 갱신**: 2026-04-16
+> **전체 문서 수**: 53개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -120,6 +120,7 @@
 | 문서 | 설명 |
 |------|------|
 | [Phase 1 통합 검증 보고서](verification/phase-1-integration-report.md) | T1~T5 서비스 통합 검증 — 이벤트 흐름 매트릭스, API 계약 레지스트리, 아키텍처 의존성 분석 |
+| [Phase 3 통합 검증 보고서](verification/phase-3-integration-report.md) | Search + Board 통합 검증 — 이벤트 동기화 7개, API 77개, Read Model 매핑, Redis 캐시 |
 
 ---
 
@@ -140,7 +141,7 @@ docs/
 │   └── phase-4/  (3개 문서)                ← 안정화 & 최적화
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
 ├── guides/       (4개 문서)                ← 개발 가이드 (PromQL/Grafana, Loki/Tempo 포함)
-└── verification/ (1개 문서)                ← Phase별 통합 검증 보고서
+└── verification/ (2개 문서)                ← Phase별 통합 검증 보고서
 ```
 
 ---
@@ -156,3 +157,4 @@ docs/
 | 2026-04-16 | v1.4 | `guides/loki-tempo-연동가이드.md` 추가 + Phase 0·1·4 에서 참조, 문서 47개 |
 | 2026-04-16 | v1.5 | Phase 1 통합 검증 보고서 + 검증 문서 섹션 추가, 문서 48개 |
 | 2026-04-16 | v1.6 | Phase 3 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합), 문서 52개 |
+| 2026-04-16 | v1.7 | Phase 3 통합 검증 보고서 추가 + Phase 3 완료 표시, 문서 53개 |

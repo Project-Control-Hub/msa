@@ -1,32 +1,39 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
-    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
     username: sa
     password:
+    driver-class-name: org.h2.Driver
   jpa:
     hibernate:
       ddl-auto: create-drop
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
   kafka:
     bootstrap-servers: localhost:9092
-  cloud:
-    discovery:
-      enabled: false
   data:
     redis:
-      repositories:
-        enabled: false
+      host: localhost
+      port: 6379
 
 eureka:
   client:
     enabled: false
-    register-with-eureka: false
-    fetch-registry: false
 
-jwt:
-  secret: test-secret-key-must-be-at-least-32-characters-long
-  access-token-validity-seconds: 60
-  refresh-token-validity-seconds: 120
+github:
+  oauth:
+    client-id: test-client-id
+    client-secret: test-client-secret
+    redirect-uri: http://localhost:8088/integration/api/v1/integrations/github/callback
+  webhook:
+    secret: test-secret
+
+integration:
+  encrypt-key: 0123456789abcdef0123456789abcdef
+
+logging:
+  level:
+    com.pch.integration: DEBUG

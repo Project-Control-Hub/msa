@@ -10,6 +10,10 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  elasticsearch:
+    uris: http://localhost:9200
   kafka:
     bootstrap-servers: localhost:9092
   cloud:

@@ -1,16 +1,13 @@
-# pch-auth-service 로컬 개발 전용 프로파일
 spring:
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
+  flyway:
+    enabled: false
 
 logging:
   level:
-    root: INFO
-    com.pch.auth: DEBUG
+    com.pch: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE

@@ -1,5 +1,7 @@
-# pch-boardreport-service 로컬 개발 전용 프로파일
+# pch-board-report-service 로컬 개발 전용 프로파일
 spring:
+  flyway:
+    enabled: false
   jpa:
     hibernate:
       ddl-auto: update

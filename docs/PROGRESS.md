@@ -272,29 +272,35 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 
 ---
 
-## ⚪ Phase 4 — 안정화 & 최적화
+## 🟡 Phase 4 — 안정화 & 최적화
 
-**상태**: ⚪ 대기
-**예상 기간**: 3주
+**상태**: 🟡 진행 중 (태스크 워크플로우 작성 완료, T1 대기)
+**예상 기간**: 3주 (T1/T3 병렬 → T2 → T4)
 
-### 체크리스트
+### 체크리스트 (T1 ~ T4)
 
-- [ ] 모놀리스(legacy) 제거 및 트래픽 0 확인
-- [ ] k6 부하 테스트 — 목표 TPS/지연 달성
-- [ ] Chaos Engineering — 서비스/DB/Kafka 장애 주입
-- [ ] NFR 검증 (가용성 99.9%, p95 < 500ms)
-- [ ] 운영 플레이북 (모니터링/알람/장애대응)
-- [ ] **Grafana 대시보드 구축** — PromQL 가이드 기반 서비스별 대시보드
-- [ ] **Prometheus 알림 룰** — 가용성/지연/에러율 임계치 + Alertmanager 채널
-- [ ] **Loki 로그 대시보드** — 에러 로그 실시간 패널, LogQL 메트릭 쿼리
-- [ ] **Tempo 트레이스 연동** — Service Map, Exemplar 연결, 느린 트레이스 테이블
-- [ ] **Loki 기반 알림** — 에러 급증, OOM 감지, Brute Force 감지
-- [ ] 오토스케일링/용량 산정
-- [ ] GA 릴리스
+- [ ] **T1. k6 부하 테스트** (`feature/phase-4-load-test`, 4~5일)
+  - 테스트 인프라 + 데이터 시딩
+  - k6 스크립트 4종 (이슈 CRUD, 보드, JQL 검색, 파일)
+  - NFR 검증 (P95 < 200ms, 에러율 < 0.1%)
+  - 부하 테스트 결과 보고서
+- [ ] **T2. Chaos Engineering** (`feature/phase-4-chaos`, 3~4일)
+  - Resilience4j 설정 보강 (CB + Retry + DLQ)
+  - 장애 주입 5종 (서비스 다운, 네트워크 지연, DB 풀 고갈, Kafka 다운, Redis 다운)
+  - MTTR 검증 + 결과 보고서
+- [ ] **T3. 모니터링/알림/대시보드** (`feature/phase-4-monitoring`, 3~4일)
+  - Prometheus 스크래핑 + AlertManager 10개 규칙
+  - Grafana 대시보드 3종 (서비스/성능/인프라)
+  - Loki 로그 + Tempo 트레이스 연동
+- [ ] **T4. 보안 감사 + GA 준비** (`feature/phase-4-ga-readiness`, 3일)
+  - OWASP Top 10 보안 감사
+  - RBAC 전체 매트릭스 (77 API × 4 역할)
+  - 운영 플레이북 5종 검증
+  - GA 릴리스 체크리스트
 
 ### 참조 문서
 
-[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md) · [운영 가이드](phases/phase-4/02-operations-guide.md) · [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md) · [Loki + Tempo 연동 가이드](guides/loki-tempo-연동가이드.md)
+[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md) · [운영 가이드](phases/phase-4/02-operations-guide.md) · [Phase 4 워크플로우](phases/phase-4/task-workflows/00-overview.md) · [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md) · [Loki + Tempo 연동 가이드](guides/loki-tempo-연동가이드.md)
 
 ---
 
@@ -316,3 +322,4 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 | 2026-04-16 | Phase 3 | T1 Search Service(PR#12) — ES + JQL 파서 + Kafka 컨슈머 3개, 테스트 10건 | Claude |
 | 2026-04-16 | Phase 3 | T2 Board & Report(PR#13) — CQRS Read Model 4종 + Redis 캐시 + 차트 API, 테스트 7건 | Claude |
 | 2026-04-16 | Phase 3 | T3 통합 검증(PR#14) — 이벤트 동기화/Read Model/API 계약 77개, 테스트 21건 | Claude |
+| 2026-04-16 | Phase 4 | 태스크 워크플로우 5개 추가 (T1 부하테스트, T2 Chaos, T3 모니터링, T4 GA 준비) | Claude |

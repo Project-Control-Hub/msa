@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 53개 | **마지막 갱신**: 2026-04-16
+> **전체 문서 수**: 58개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -91,6 +91,16 @@
 | 4-1 | [부하 테스트 & 장애 주입](phases/phase-4/01-load-testing.md) | k6 시나리오, Chaos Engineering, NFR 검증 |
 | 4-2 | [운영 가이드](phases/phase-4/02-operations-guide.md) | 모니터링, 장애 대응 플레이북, 스케일링 |
 
+#### Phase 4 태스크 워크플로우
+
+| # | 문서 | 설명 |
+|---|------|------|
+| TW-0 | [Phase 4 워크플로우 개요](phases/phase-4/task-workflows/00-overview.md) | T1~T4 태스크 맵, 의존 관계, 커밋 전략, DoD |
+| TW-T1 | [k6 부하 테스트 워크플로우](phases/phase-4/task-workflows/01-load-test-workflow.md) | k6 4종 시나리오, NFR 기준표, 성능 튜닝 |
+| TW-T2 | [Chaos Engineering 워크플로우](phases/phase-4/task-workflows/02-chaos-workflow.md) | 장애 주입 5종, Resilience4j, MTTR 검증 |
+| TW-T3 | [모니터링 구축 워크플로우](phases/phase-4/task-workflows/03-monitoring-workflow.md) | Prometheus/Grafana/Loki/Tempo, 알림 10개+ |
+| TW-T4 | [GA 준비 워크플로우](phases/phase-4/task-workflows/04-ga-readiness-workflow.md) | OWASP 보안 감사, RBAC, 운영 플레이북, GA 체크리스트 |
+
 ---
 
 ## 아키텍처 설계 문서
@@ -138,7 +148,8 @@ docs/
 │   ├── phase-2/  (6개 문서)                ← 핵심 서비스 분리
 │   ├── phase-3/  (3개 문서 + task-workflows 4개) ← 검색/보드 분리
 │   │   └── task-workflows/                 ← T1~T3 실행 가이드
-│   └── phase-4/  (3개 문서)                ← 안정화 & 최적화
+│   └── phase-4/  (3개 문서 + task-workflows 5개) ← 안정화 & 최적화
+│       └── task-workflows/                 ← T1~T4 실행 가이드
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
 ├── guides/       (4개 문서)                ← 개발 가이드 (PromQL/Grafana, Loki/Tempo 포함)
 └── verification/ (2개 문서)                ← Phase별 통합 검증 보고서
@@ -158,3 +169,4 @@ docs/
 | 2026-04-16 | v1.5 | Phase 1 통합 검증 보고서 + 검증 문서 섹션 추가, 문서 48개 |
 | 2026-04-16 | v1.6 | Phase 3 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합), 문서 52개 |
 | 2026-04-16 | v1.7 | Phase 3 통합 검증 보고서 추가 + Phase 3 완료 표시, 문서 53개 |
+| 2026-04-16 | v1.8 | Phase 4 태스크 워크플로우 5개 추가 (T1~T4), 문서 58개 |

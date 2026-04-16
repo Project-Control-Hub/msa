@@ -1,18 +1,32 @@
 server:
   port: 8000
+  forward-headers-strategy: framework
 
 spring:
   application:
     name: pch-gateway
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
   cloud:
     gateway:
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        # 전역 Rate Limit: 인증 사용자 기준 초당 20 / 버스트 40
+        - name: RequestRateLimiter
+          args:
+            key-resolver: "#{@userKeyResolver}"
+            redis-rate-limiter.replenishRate: 20
+            redis-rate-limiter.burstCapacity: 40
+            redis-rate-limiter.requestedTokens: 1
       globalcors:
         cors-configurations:
           '[/**]':
-            allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+            allowed-origin-patterns: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
             allowed-methods: "*"
             allowed-headers: "*"
             allow-credentials: true
@@ -25,6 +39,11 @@ spring:
           uri: lb://pch-auth-service
           predicates:
             - Path=/api/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
         - id: auth-users
           uri: lb://pch-auth-service
           predicates:
@@ -107,18 +126,23 @@ eureka:
 # ── JWT 검증 설정 ──
 jwt:
   secret: ${JWT_SECRET:dev-secret-key-must-be-at-least-32-characters-long}
+  access-token-validity-seconds: ${JWT_ACCESS_EXP:1800}
+  refresh-token-validity-seconds: ${JWT_REFRESH_EXP:1209600}
 
 # ── Actuator ──
 management:
   endpoints:
     web:
       exposure:
-        include: health, info, gateway
+        include: health, info, gateway, prometheus, metrics
   endpoint:
     health:
       show-details: when-authorized
     gateway:
       enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 # ── Resilience4j (Circuit Breaker) ──
 resilience4j:
@@ -129,7 +153,18 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10000
         permitted-number-of-calls-in-half-open-state: 3
+    instances:
+      authCircuitBreaker:
+        base-config: default
   timelimiter:
     configs:
       default:
         timeout-duration: 3s
+
+# ── Logging ──
+logging:
+  level:
+    com.pch.gateway: INFO
+    org.springframework.cloud.gateway: INFO
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

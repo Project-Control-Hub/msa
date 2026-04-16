@@ -1,18 +1,32 @@
 server:
   port: 8000
+  forward-headers-strategy: framework
 
 spring:
   application:
     name: pch-gateway
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
   cloud:
     gateway:
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+        # 전역 Rate Limit: 인증 사용자 기준 초당 20 / 버스트 40
+        - name: RequestRateLimiter
+          args:
+            key-resolver: "#{@userKeyResolver}"
+            redis-rate-limiter.replenishRate: 20
+            redis-rate-limiter.burstCapacity: 40
+            redis-rate-limiter.requestedTokens: 1
       globalcors:
         cors-configurations:
           '[/**]':
-            allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+            allowed-origin-patterns: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
             allowed-methods: "*"
             allowed-headers: "*"
             allow-credentials: true
@@ -25,6 +39,11 @@ spring:
           uri: lb://pch-auth-service
           predicates:
             - Path=/api/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: authCircuitBreaker
+                fallbackUri: forward:/fallback/auth
         - id: auth-users
           uri: lb://pch-auth-service
           predicates:
@@ -35,10 +54,20 @@ spring:
           uri: lb://pch-project-service
           predicates:
             - Path=/api/v1/projects/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: projectCircuitBreaker
+                fallbackUri: forward:/fallback/project
         - id: sprint-service
           uri: lb://pch-project-service
           predicates:
             - Path=/api/v1/sprints/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: projectCircuitBreaker
+                fallbackUri: forward:/fallback/project
         - id: version-service
           uri: lb://pch-project-service
           predicates:
@@ -49,10 +78,20 @@ spring:
           uri: lb://pch-issue-service
           predicates:
             - Path=/api/v1/issues/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: issueCircuitBreaker
+                fallbackUri: forward:/fallback/issue
         - id: comment-service
           uri: lb://pch-issue-service
           predicates:
             - Path=/api/v1/comments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: issueCircuitBreaker
+                fallbackUri: forward:/fallback/issue
         - id: audit-log-service
           uri: lb://pch-issue-service
           predicates:
@@ -63,32 +102,62 @@ spring:
           uri: lb://pch-board-report-service
           predicates:
             - Path=/api/v1/dashboards/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: boardCircuitBreaker
+                fallbackUri: forward:/fallback/board
         - id: report-service
           uri: lb://pch-board-report-service
           predicates:
             - Path=/api/v1/projects/*/reports/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: boardCircuitBreaker
+                fallbackUri: forward:/fallback/board
 
         # Search Service (JQL)
         - id: search-service
           uri: lb://pch-search-service
           predicates:
             - Path=/api/v1/projects/*/jql/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: searchCircuitBreaker
+                fallbackUri: forward:/fallback/search
 
         # Notification Service
         - id: notification-service
           uri: lb://pch-notification-service
           predicates:
             - Path=/api/v1/notifications/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: notificationCircuitBreaker
+                fallbackUri: forward:/fallback/notification
 
         # File Service
         - id: file-service
           uri: lb://pch-file-service
           predicates:
             - Path=/api/v1/attachments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fileCircuitBreaker
+                fallbackUri: forward:/fallback/file
         - id: file-issue-attachments
           uri: lb://pch-file-service
           predicates:
             - Path=/api/v1/issues/*/attachments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fileCircuitBreaker
+                fallbackUri: forward:/fallback/file
 
         # Integration Service
         - id: integration-service
@@ -107,18 +176,23 @@ eureka:
 # ── JWT 검증 설정 ──
 jwt:
   secret: ${JWT_SECRET:dev-secret-key-must-be-at-least-32-characters-long}
+  access-token-validity-seconds: ${JWT_ACCESS_EXP:1800}
+  refresh-token-validity-seconds: ${JWT_REFRESH_EXP:1209600}
 
 # ── Actuator ──
 management:
   endpoints:
     web:
       exposure:
-        include: health, info, gateway
+        include: health, info, gateway, prometheus, metrics, circuitbreakers
   endpoint:
     health:
       show-details: when-authorized
     gateway:
       enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 # ── Resilience4j (Circuit Breaker) ──
 resilience4j:
@@ -129,7 +203,38 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 10000
         permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+    instances:
+      authCircuitBreaker:
+        base-config: default
+      issueCircuitBreaker:
+        base-config: default
+      projectCircuitBreaker:
+        base-config: default
+      searchCircuitBreaker:
+        base-config: default
+        failure-rate-threshold: 60
+      boardCircuitBreaker:
+        base-config: default
+      fileCircuitBreaker:
+        base-config: default
+        wait-duration-in-open-state: 15000
+      notificationCircuitBreaker:
+        base-config: default
+        failure-rate-threshold: 70
   timelimiter:
     configs:
       default:
-        timeout-duration: 3s
+        timeout-duration: 5s
+    instances:
+      fileCircuitBreaker:
+        timeout-duration: 10s
+
+# ── Logging ──
+logging:
+  level:
+    com.pch.gateway: INFO
+    org.springframework.cloud.gateway: INFO
+    io.github.resilience4j: DEBUG
+  pattern:
+    level: "%5p [%X{correlationId:-}]"

@@ -13,6 +13,9 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
   servlet:
     multipart:
       max-file-size: 20MB
@@ -22,6 +25,8 @@ spring:
     consumer:
       group-id: pch-file-service
       auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       acks: all
 
@@ -46,8 +51,13 @@ management:
     health:
       show-details: always
 
+file:
+  storage:
+    type: ${FILE_STORAGE_TYPE:s3}
+
 aws:
   s3:
     bucket: ${AWS_S3_BUCKET:pch-files}
     region: ${AWS_S3_REGION:us-east-1}
+    endpoint: ${AWS_S3_ENDPOINT:}
     local-storage-path: ${LOCAL_STORAGE_PATH:/tmp/pch-files}

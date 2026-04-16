@@ -1,0 +1,28 @@
+# 로컬 개발 편의용 오버라이드.
+# 기본 docker-compose.yml 과 함께 자동으로 병합된다.
+# (docker compose up 시 이 파일이 있으면 자동 로드됨)
+#
+# 사용 예: 비밀번호/포트/리소스만 이 파일에서 조정하고 본 파일은 건드리지 않는다.
+
+services:
+  mysql:
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  kafka:
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_ADVERTISED_HOST:-localhost}:9092
+
+  elasticsearch:
+    environment:
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}

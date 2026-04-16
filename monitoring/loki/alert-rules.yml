@@ -1,0 +1,35 @@
+groups:
+  - name: log_alerts
+    rules:
+      # ERROR 로그 급증
+      - alert: ErrorLogSpike
+        expr: |
+          sum(count_over_time({job=~"pch-.*"} |= "ERROR" [5m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ERROR log spike detected"
+          description: "{{ $value }} ERROR logs in the last 5 minutes"
+
+      # OOM 감지
+      - alert: OutOfMemoryDetected
+        expr: |
+          count_over_time({job=~"pch-.*"} |~ "OutOfMemoryError|java.lang.OutOfMemoryError" [5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OOM detected in {{ $labels.job }}"
+          description: "OutOfMemoryError found in application logs"
+
+      # 인증 실패 급증 (Brute Force)
+      - alert: AuthBruteForceDetected
+        expr: |
+          sum(count_over_time({job="pch-auth-service"} |= "Authentication failed" [5m])) > 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Possible brute force attack detected"
+          description: "{{ $value }} auth failures in 5 minutes"

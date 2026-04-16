@@ -1,0 +1,18 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+file:
+  storage:
+    type: local
+
+aws:
+  s3:
+    local-storage-path: /tmp/pch-files-dev
+
+logging:
+  level:
+    com.pch.file: DEBUG
+    org.hibernate.SQL: DEBUG

@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 58개 | **마지막 갱신**: 2026-04-16
+> **전체 문서 수**: 64개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -131,6 +131,11 @@
 |------|------|
 | [Phase 1 통합 검증 보고서](verification/phase-1-integration-report.md) | T1~T5 서비스 통합 검증 — 이벤트 흐름 매트릭스, API 계약 레지스트리, 아키텍처 의존성 분석 |
 | [Phase 3 통합 검증 보고서](verification/phase-3-integration-report.md) | Search + Board 통합 검증 — 이벤트 동기화 7개, API 77개, Read Model 매핑, Redis 캐시 |
+| [Phase 4 부하 테스트 보고서](verification/phase-4-load-test-report.md) | k6 4종 시나리오 NFR 검증 — Issue/Board/Search/File 전체 PASS |
+| [Phase 4 Chaos 보고서](verification/phase-4-chaos-report.md) | 5종 장애 시나리오 MTTR 검증 — 전체 PASS |
+| [Phase 4 모니터링 보고서](verification/phase-4-monitoring-report.md) | Observability 스택 검증 — 12 스크래핑 + 13 알림 + 3 대시보드 |
+| [운영 플레이북 검증](phases/phase-4/verified-playbooks.md) | 5종 플레이북 실행 검증 + 롤백 절차 (6/6 PASS) |
+| [GA 릴리스 체크리스트](phases/phase-4/ga-checklist.md) | PCH MSA v1.0.0 GA 준비 완료 — 전체 카테고리 PASS |
 
 ---
 
@@ -152,7 +157,7 @@ docs/
 │       └── task-workflows/                 ← T1~T4 실행 가이드
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
 ├── guides/       (4개 문서)                ← 개발 가이드 (PromQL/Grafana, Loki/Tempo 포함)
-└── verification/ (2개 문서)                ← Phase별 통합 검증 보고서
+└── verification/ (7개 문서)                ← Phase별 통합 검증 보고서
 ```
 
 ---
@@ -170,3 +175,5 @@ docs/
 | 2026-04-16 | v1.6 | Phase 3 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합), 문서 52개 |
 | 2026-04-16 | v1.7 | Phase 3 통합 검증 보고서 추가 + Phase 3 완료 표시, 문서 53개 |
 | 2026-04-16 | v1.8 | Phase 4 태스크 워크플로우 5개 추가 (T1~T4), 문서 58개 |
+| 2026-04-16 | v1.9 | Phase 4 검증 보고서 5개 + GA 체크리스트 + 플레이북 검증, 문서 64개 |
+| 2026-04-16 | v2.0 | **🎉 GA Release — PCH MSA v1.0.0 전체 완료** |

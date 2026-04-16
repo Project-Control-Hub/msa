@@ -13,13 +13,24 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
       group-id: pch-integration-service
       auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 server:
   port: 8088
@@ -46,4 +57,9 @@ github:
   oauth:
     client-id: ${GITHUB_CLIENT_ID:}
     client-secret: ${GITHUB_CLIENT_SECRET:}
-    redirect-uri: ${GITHUB_REDIRECT_URI:}
+    redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8088/integration/api/v1/integrations/github/callback}
+  webhook:
+    secret: ${GITHUB_WEBHOOK_SECRET:webhook-secret}
+
+integration:
+  encrypt-key: ${INTEGRATION_ENCRYPT_KEY:0123456789abcdef0123456789abcdef}

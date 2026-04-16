@@ -1,0 +1,36 @@
+{
+  "scenarios": {
+    "issue-crud": {
+      "vus": 100,
+      "duration": "10m",
+      "thresholds": {
+        "http_req_duration": ["p(95)<200", "p(99)<500"],
+        "http_req_failed": ["rate<0.001"]
+      }
+    },
+    "sprint-board": {
+      "vus": 200,
+      "duration": "10m",
+      "thresholds": {
+        "http_req_duration": ["p(95)<50", "p(99)<100"],
+        "http_req_failed": ["rate<0.001"]
+      }
+    },
+    "jql-search": {
+      "vus": 150,
+      "duration": "10m",
+      "thresholds": {
+        "http_req_duration": ["p(95)<100", "p(99)<300"],
+        "http_req_failed": ["rate<0.001"]
+      }
+    },
+    "file-upload": {
+      "vus": 50,
+      "duration": "5m",
+      "thresholds": {
+        "http_req_duration": ["p(95)<1000", "p(99)<2000"],
+        "http_req_failed": ["rate<0.001"]
+      }
+    }
+  }
+}

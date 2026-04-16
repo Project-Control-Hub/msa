@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 34개 | **마지막 갱신**: 2026-04-15
+> **전체 문서 수**: 46개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -9,6 +9,7 @@
 | 문서 | 설명 |
 |------|------|
 | [00-OVERVIEW.md](00-OVERVIEW.md) | 프로젝트 배경, 전환 목표, 서비스 토폴로지, 기술 스택, 타임라인, 리스크 |
+| [PROGRESS.md](PROGRESS.md) | Phase 별 작업 진행 완료 여부 및 작업 내용 (실시간 현황판) |
 
 ---
 
@@ -38,6 +39,21 @@
 | 1-4 | [Integration Service](phases/phase-1/04-integration-service.md) | GitHub OAuth, 웹훅, VCS 연동 |
 | 1-5 | [Project Service](phases/phase-1/05-project-service.md) | 프로젝트, 스프린트, 릴리즈, 워크플로우, 레이블 |
 | 1-6 | [통합 검증](phases/phase-1/06-integration-testing.md) | E2E 테스트, 성능 기준선, 장애 시나리오 |
+
+#### Phase 1 태스크 워크플로우 (실행 가이드)
+
+| # | 문서 | 설명 |
+|---|------|------|
+| TW-0 | [워크플로우 개요](phases/phase-1/task-workflows/00-overview.md) | 브랜치 전략, 태스크 카탈로그(T1~T6), Mermaid gitGraph, CI/CD 게이트 |
+| TW-1 | [T1. Auth 워크플로우](phases/phase-1/task-workflows/01-auth-workflow.md) | 엔티티→Repo→REST→이벤트→테스트 6단계, 3~4일 |
+| TW-2 | [T2. Notification 워크플로우](phases/phase-1/task-workflows/02-notification-workflow.md) | 이벤트 컨슈머, 멱등성(Redis), DLQ, 재시도 백오프 |
+| TW-3 | [T3. File 워크플로우](phases/phase-1/task-workflows/03-file-workflow.md) | FileStorage 추상화(S3/Local), presigned URL, MIME 화이트리스트 |
+| TW-4 | [T4. Integration 워크플로우](phases/phase-1/task-workflows/04-integration-workflow.md) | GitHub OAuth, HMAC 웹훅 검증, 토큰 암호화 |
+| TW-5 | [T5. Project 워크플로우](phases/phase-1/task-workflows/05-project-workflow.md) | Project/Sprint/Version/Label 도메인, SprintCompletedEvent |
+| TW-6 | [T6. 통합 검증 워크플로우](phases/phase-1/task-workflows/06-integration-testing-workflow.md) | E2E(Testcontainers), k6 성능, Chaos 시나리오 5종 |
+| TW-T1 | [PR 본문 템플릿](phases/phase-1/task-workflows/_templates/pr-template.md) | 태스크 PR 작성용 공통 템플릿 |
+| TW-T2 | [커밋 규약](phases/phase-1/task-workflows/_templates/commit-convention.md) | Conventional Commits 1.0.0 (type/scope/subject/body/footer) |
+| TW-T3 | [Definition of Done](phases/phase-1/task-workflows/_templates/definition-of-done.md) | PR 머지 전 공통 DoD 체크리스트 |
 
 ### Phase 2: 핵심 서비스 분리 (4주)
 
@@ -85,6 +101,7 @@
 |------|------|
 | [로컬 개발 환경 가이드](guides/local-dev-setup.md) | 사전 요구사항, Docker Compose, 서비스 실행, IDE 설정 |
 | [코딩 컨벤션](guides/coding-conventions.md) | 패키지 구조, API 설계, 이벤트 네이밍, Git 전략, 테스트 |
+| [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md) | 모니터링 스택, Spring Boot 메트릭, PromQL 30선, 대시보드/알림 (Phase 0·4 참조) |
 
 ---
 
@@ -94,14 +111,16 @@
 docs/
 ├── 00-OVERVIEW.md                          ← 전체 개요
 ├── INDEX.md                                ← 현재 문서 (목차)
+├── PROGRESS.md                             ← Phase별 진행 현황판
 ├── phases/
 │   ├── phase-0/  (8개 문서)                ← 기반 인프라 구축
-│   ├── phase-1/  (7개 문서)                ← 주변 서비스 분리
+│   ├── phase-1/  (7개 문서 + task-workflows 10개) ← 주변 서비스 분리
+│   │   └── task-workflows/                 ← T1~T6 실행 가이드 + 템플릿
 │   ├── phase-2/  (6개 문서)                ← 핵심 서비스 분리
 │   ├── phase-3/  (3개 문서)                ← 검색/보드 분리
 │   └── phase-4/  (3개 문서)                ← 안정화 & 최적화
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
-└── guides/       (2개 문서)                ← 개발 가이드
+└── guides/       (3개 문서)                ← 개발 가이드 (PromQL/Grafana 포함)
 ```
 
 ---
@@ -111,3 +130,6 @@ docs/
 | 날짜 | 버전 | 변경 내용 |
 |------|------|-----------|
 | 2026-04-15 | v1.0 | 전체 문서 초안 작성 (34개 문서) |
+| 2026-04-16 | v1.1 | Phase 1 task-workflows 세트 추가 (7개 워크플로우 + 3개 템플릿) |
+| 2026-04-16 | v1.2 | `PROGRESS.md` 추가 — Phase별 작업 진행 현황판 |
+| 2026-04-16 | v1.3 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 참조 |

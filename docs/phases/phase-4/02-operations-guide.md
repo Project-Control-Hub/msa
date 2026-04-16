@@ -82,6 +82,10 @@ done
 
 ## 모니터링 대시보드 구성 (Grafana)
 
+> 📘 **실습 레퍼런스**: [PromQL & Grafana 대시보드 실습 가이드](../../guides/promql-grafana-guide.md)
+> — 이 문서는 Phase 4 운영 관점의 "what"(어떤 대시보드·알림이 필요한가)에 집중합니다.
+> PromQL 쿼리 문법, Grafana 패널 구성, Alertmanager 룰, Exporters 구성 등 "how"(실습·복붙) 는 위 가이드를 참조하세요.
+
 ### Prometheus 메트릭 수집
 
 **prometheus.yml**:

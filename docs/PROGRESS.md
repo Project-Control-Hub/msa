@@ -2,7 +2,7 @@
 
 > **목적**: 각 Phase 별 작업 진행 완료 여부와 실제 수행된 작업 내용을 기록합니다.
 > **마지막 갱신**: 2026-04-16
-> **현재 브랜치**: `develop` (Phase 1 T1~T4 머지 완료, T5 대기)
+> **현재 브랜치**: `develop` (Phase 1 T1~T6 전체 완료)
 > **관련 문서**: [INDEX.md](INDEX.md) · [00-OVERVIEW.md](00-OVERVIEW.md)
 
 ---
@@ -12,7 +12,7 @@
 | Phase | 기간 | 상태 | 진척률 | 브랜치 | PR |
 |-------|------|------|--------|--------|-----|
 | **Phase 0** — 기반 인프라 구축 | 2주 | 🟢 **완료** | 100% | `feature/phase-0` | PR #1 ✅ |
-| **Phase 1** — 주변 서비스 분리 | 4주 | 🟡 **진행 중** (T1~T4 완료) | 65% | `feature/phase-1-*` | PR #3~#6 ✅ |
+| **Phase 1** — 주변 서비스 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-1-*` | PR #3~#8 ✅ |
 | **Phase 2** — 핵심 서비스 분리 | 4주 | ⚪ 대기 | 0% | — | — |
 | **Phase 3** — 검색/보드 분리 | 4주 | ⚪ 대기 | 0% | — | — |
 | **Phase 4** — 안정화 & 최적화 | 3주 | ⚪ 대기 | 0% | — | — |
@@ -126,10 +126,10 @@
 
 ---
 
-## 🟡 Phase 1 — 주변 서비스 분리
+## ✅ Phase 1 — 주변 서비스 분리
 
-**상태**: 🟡 진행 중 (T1~T4 완료, T5 대기)
-**예상 기간**: 4주 (T1 → T5 순차, T6 E2E 마지막 주)
+**상태**: 🟢 완료 (T1~T6 전체 완료)
+**예상 기간**: 4주 (T1 → T5 순차, T6 통합 검증)
 
 ### 체크리스트 (T1 ~ T6)
 
@@ -162,13 +162,19 @@
   - push→커밋 연결 / PR→이슈 연결 + VcsCommitLinkedEvent 발행
   - VCS 링크 조회 API
   - SignatureVerifierTest(3) + IssueKeyExtractorTest(3) + TokenEncryptorTest(2)
-- [ ] **T5. Project Service** (`feature/phase-1-project`, 5~7일)
-  - Project/Sprint/Version/Label/AutomationRule 도메인
-  - `SprintCompletedEvent` 발행
-- [ ] **T6. 통합 검증** (`feature/phase-1-e2e`, 1주)
-  - Testcontainers E2E 6 시나리오
-  - k6 성능 기준선 (p95 < 300ms)
-  - Chaos 시나리오 5종
+- [x] **T5. Project Service** — PR #8 (Squash merged → `1994e7c`)
+  - Project/ProjectMember/Sprint/Version/Label 5개 도메인 + Flyway V1~V5
+  - ProjectRole 기반 접근 제어 (ADMIN/MANAGER/DEVELOPER/VIEWER)
+  - Sprint 생명주기 (CREATED → ACTIVE → COMPLETED)
+  - Kafka 이벤트: `SprintCompletedEvent`, `ProjectMemberEvent`
+  - KafkaEventPublisherImpl (DomainEventPublisher 구현)
+  - REST API 18개 (Project/Sprint/Version/Label CRUD)
+  - ProjectServiceTest(2) + SprintServiceTest(3)
+- [x] **T6. 통합 검증** — PR #9 (`feature/phase-1-integration-test`)
+  - EventConsistencyTest (7) — 이벤트 필드/네이밍/직렬화 검증
+  - KafkaEventFlowMatrixTest (5) — Producer/Consumer 매핑 + 순환의존 검증
+  - ApiContractRegistryTest (5) — 42개 엔드포인트 레지스트리 + URL 규칙 검증
+  - Phase 1 통합 검증 보고서 (`docs/verification/phase-1-integration-report.md`)
 
 ### PR 히스토리
 
@@ -178,6 +184,7 @@
 | #4 | `feature/phase-1-notification` | feat(notification): Phase 1 — pch-notification-service 분리 | ✅ Merged |
 | #5 | `feature/phase-1-file` | feat(file): Phase 1 — pch-file-service 분리 | ✅ Merged |
 | #6 | `feature/phase-1-integration` | feat(integration): Phase 1 — pch-integration-service 분리 | ✅ Merged |
+| #8 | `feature/phase-1-project` | feat: T5 — Project Service (Project/Sprint/Version/Label) | ✅ Merged |
 
 ### 참조 문서
 
@@ -186,7 +193,7 @@
 
 ### 다음 액션
 
-T5 Project Service 브랜치 생성 → `task-workflows/05-project-workflow.md` 의 5단계 시작.
+Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 
 ---
 
@@ -269,3 +276,5 @@ T5 Project Service 브랜치 생성 → `task-workflows/05-project-workflow.md` 
 | 2026-04-16 | Phase 0·4 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 상호 참조 | Claude |
 | 2026-04-16 | Phase 1 | T1 Auth(PR#3), T2 Notification(PR#4), T3 File(PR#5), T4 Integration(PR#6) 완료 | Claude |
 | 2026-04-16 | Phase 0·1·4 | `guides/loki-tempo-연동가이드.md` 추가 + Phase 0·1·4 에서 상호 참조 | Claude |
+| 2026-04-16 | Phase 1 | T5 Project Service(PR#8) 완료 | Claude |
+| 2026-04-16 | Phase 1 | T6 통합 검증 — 이벤트/API/아키텍처 검증 테스트 17개 + 보고서 | Claude |

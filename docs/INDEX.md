@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 48개 | **마지막 갱신**: 2026-04-16
+> **전체 문서 수**: 52개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -74,6 +74,15 @@
 | 3-1 | [Search Service](phases/phase-3/01-search-service.md) | Elasticsearch, JQL 파서, 인덱스 동기화 |
 | 3-2 | [Board & Report Service](phases/phase-3/02-board-report-service.md) | CQRS Read Model, 보드, 차트, 대시보드 |
 
+#### Phase 3 태스크 워크플로우
+
+| # | 문서 | 설명 |
+|---|------|------|
+| TW-0 | [Phase 3 워크플로우 개요](phases/phase-3/task-workflows/00-overview.md) | T1~T3 태스크 맵, 의존 관계, 커밋 전략 |
+| TW-T1 | [Search Service 워크플로우](phases/phase-3/task-workflows/01-search-service-workflow.md) | ES 인덱스 + JQL 파서 + 이벤트 동기화 |
+| TW-T2 | [Board & Report 워크플로우](phases/phase-3/task-workflows/02-board-report-workflow.md) | CQRS Read Model + Redis 캐시 + 차트 |
+| TW-T3 | [통합 검증 워크플로우](phases/phase-3/task-workflows/03-integration-test-workflow.md) | 이벤트 동기화 + Read Model 일관성 |
+
 ### Phase 4: 안정화 & 최적화 (3주)
 
 | # | 문서 | 설명 |
@@ -126,7 +135,8 @@ docs/
 │   ├── phase-1/  (7개 문서 + task-workflows 10개) ← 주변 서비스 분리
 │   │   └── task-workflows/                 ← T1~T6 실행 가이드 + 템플릿
 │   ├── phase-2/  (6개 문서)                ← 핵심 서비스 분리
-│   ├── phase-3/  (3개 문서)                ← 검색/보드 분리
+│   ├── phase-3/  (3개 문서 + task-workflows 4개) ← 검색/보드 분리
+│   │   └── task-workflows/                 ← T1~T3 실행 가이드
 │   └── phase-4/  (3개 문서)                ← 안정화 & 최적화
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
 ├── guides/       (4개 문서)                ← 개발 가이드 (PromQL/Grafana, Loki/Tempo 포함)
@@ -145,3 +155,4 @@ docs/
 | 2026-04-16 | v1.3 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 참조 |
 | 2026-04-16 | v1.4 | `guides/loki-tempo-연동가이드.md` 추가 + Phase 0·1·4 에서 참조, 문서 47개 |
 | 2026-04-16 | v1.5 | Phase 1 통합 검증 보고서 + 검증 문서 섹션 추가, 문서 48개 |
+| 2026-04-16 | v1.6 | Phase 3 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합), 문서 52개 |

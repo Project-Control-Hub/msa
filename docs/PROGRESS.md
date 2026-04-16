@@ -2,7 +2,7 @@
 
 > **목적**: 각 Phase 별 작업 진행 완료 여부와 실제 수행된 작업 내용을 기록합니다.
 > **마지막 갱신**: 2026-04-16
-> **현재 브랜치**: `develop` (Phase 1 T1~T6 전체 완료)
+> **현재 브랜치**: `develop` (Phase 2 완료, Phase 3 진행 준비)
 > **관련 문서**: [INDEX.md](INDEX.md) · [00-OVERVIEW.md](00-OVERVIEW.md)
 
 ---
@@ -13,8 +13,8 @@
 |-------|------|------|--------|--------|-----|
 | **Phase 0** — 기반 인프라 구축 | 2주 | 🟢 **완료** | 100% | `feature/phase-0` | PR #1 ✅ |
 | **Phase 1** — 주변 서비스 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-1-*` | PR #3~#8 ✅ |
-| **Phase 2** — 핵심 서비스 분리 | 4주 | ⚪ 대기 | 0% | — | — |
-| **Phase 3** — 검색/보드 분리 | 4주 | ⚪ 대기 | 0% | — | — |
+| **Phase 2** — 핵심 서비스 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-2-issue` | PR #10 ✅ |
+| **Phase 3** — 검색/보드 분리 | 4주 | 🟡 **진행 중** (워크플로우 작성) | 10% | `feature/phase-3-*` | — |
 | **Phase 4** — 안정화 & 최적화 | 3주 | ⚪ 대기 | 0% | — | — |
 
 **범례**: 🟢 완료 · 🟡 진행 중 · 🔴 블로커 · ⚪ 미시작
@@ -197,21 +197,31 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 
 ---
 
-## ⚪ Phase 2 — 핵심 서비스 분리 (Issue Service)
+## ✅ Phase 2 — 핵심 서비스 분리 (Issue Service)
 
-**상태**: ⚪ 대기
+**상태**: 🟢 완료 (PR #10 머지됨)
+**브랜치**: `feature/phase-2-issue` → `develop`
 **예상 기간**: 4주
 
 ### 체크리스트
 
-- [ ] Issue Service 패키지 구조 및 12개 엔티티 이관
-- [ ] DB 스키마 분리 (FK 해제, pch-issue schema)
-- [ ] FeignClient 로 Auth/Project 조회 대체
-- [ ] 워크플로우 엔진 + 자동화 규칙 실행기
-- [ ] CommentService / AuditService 전환
-- [ ] RBAC 정책 이관
-- [ ] 스프린트 완료 Saga (Choreography) + Outbox 패턴
-- [ ] 롤백 계획 리허설
+- [x] Issue Service 패키지 구조 및 12개 엔티티 이관
+- [x] DB 스키마 분리 (FK 해제 → 논리적 ID 참조, Flyway V1~V6)
+- [x] IssueService / CommentService / AutomationService
+- [x] 이슈키 자동 채번 (IssueSequence, PESSIMISTIC_WRITE)
+- [x] 코멘트 @mention 파싱 + CommentMentionEvent 발행
+- [x] 감사 로그 (AuditLog, 모든 이슈 변경 기록)
+- [x] 자동화 규칙 엔진 (AutomationRule + 실행 로그)
+- [x] Kafka Producer: issue.created, issue.status-changed, issue.deleted, comment.mentioned
+- [x] Kafka Consumer: sprint.completed → 백로그 이동, vcs.commit-linked → VCS 연동
+- [x] REST API 20개 (공개 17 + 내부 3)
+- [x] IssueServiceTest(4) + CommentServiceTest(2)
+
+### PR 히스토리
+
+| PR | 브랜치 | 제목 | 상태 |
+|----|--------|------|------|
+| #10 | `feature/phase-2-issue` | feat: Phase 2 — Issue Service 분리 | ✅ Merged |
 
 ### 참조 문서
 
@@ -219,23 +229,34 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 
 ---
 
-## ⚪ Phase 3 — 검색/보드 분리 (CQRS)
+## 🟡 Phase 3 — 검색/보드 분리 (CQRS)
 
-**상태**: ⚪ 대기
-**예상 기간**: 4주
+**상태**: 🟡 진행 중 (태스크 워크플로우 작성 완료, T1 대기)
+**예상 기간**: 4주 (T1 → T2 병렬 가능, T3 마지막 주)
 
-### 체크리스트
+### 체크리스트 (T1 ~ T3)
 
-- [ ] Search Service — Elasticsearch 인덱스 설계
-- [ ] JQL 파서 (ANTLR 또는 수제) 이식
-- [ ] 이벤트 기반 인덱스 동기화
-- [ ] Board & Report Service — CQRS Read Model
-- [ ] 보드/차트/대시보드 쿼리 최적화
-- [ ] Read Model 재구성 스크립트
+- [ ] **T1. Search Service** (`feature/phase-3-search`, 5~7일)
+  - IssueDocument (ES 인덱스) + SavedFilter (JPA)
+  - JQL 파서 (=, !=, IN, >=, ~ 연산자 지원)
+  - Elasticsearch Nori 한글 분석기 + n-gram 자동완성
+  - Kafka Consumer 3개 (issue.created/status-changed/deleted → ES 동기화)
+  - REST API 7개 (검색/자동완성/재색인/필터 CRUD)
+- [ ] **T2. Board & Report Service** (`feature/phase-3-board-report`, 5~7일)
+  - CQRS Read Model 4종 (BoardCard, SprintBurndown, SprintVelocity, DashboardGadget)
+  - Kafka Consumer 4개 (이벤트 → Read Model 동기화)
+  - Redis 캐시 (sprint-board 5min, charts 10~30min, 이벤트 기반 무효화)
+  - 번다운/벨로시티/CFD 3종 차트 API
+  - 대시보드 위젯 CRUD
+  - REST API 8개 (보드/차트/대시보드)
+- [ ] **T3. 통합 검증** (`feature/phase-3-integration-test`, 2~3일)
+  - 이벤트 동기화 정합성 검증
+  - API 계약 레지스트리 업데이트 (42 → 57개)
+  - PROGRESS.md Phase 3 완료 표시
 
 ### 참조 문서
 
-[Phase 3 개요](phases/phase-3/00-phase-3-overview.md)
+[Phase 3 개요](phases/phase-3/00-phase-3-overview.md) · [Phase 3 워크플로우](phases/phase-3/task-workflows/00-overview.md)
 
 ---
 
@@ -278,3 +299,5 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 | 2026-04-16 | Phase 0·1·4 | `guides/loki-tempo-연동가이드.md` 추가 + Phase 0·1·4 에서 상호 참조 | Claude |
 | 2026-04-16 | Phase 1 | T5 Project Service(PR#8) 완료 | Claude |
 | 2026-04-16 | Phase 1 | T6 통합 검증 — 이벤트/API/아키텍처 검증 테스트 17개 + 보고서 | Claude |
+| 2026-04-16 | Phase 2 | Issue Service 분리 (PR#10) — 12 엔티티, 20 API, 6 테스트 | Claude |
+| 2026-04-16 | Phase 3 | 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합) | Claude |

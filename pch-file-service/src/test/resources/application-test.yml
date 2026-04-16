@@ -1,32 +1,34 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;MODE=MySQL;DB_CLOSE_DELAY=-1
-    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
     username: sa
     password:
+    driver-class-name: org.h2.Driver
   jpa:
     hibernate:
       ddl-auto: create-drop
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
   kafka:
     bootstrap-servers: localhost:9092
-  cloud:
-    discovery:
-      enabled: false
-  data:
-    redis:
-      repositories:
-        enabled: false
+
+file:
+  storage:
+    type: local
+
+aws:
+  s3:
+    bucket: test-bucket
+    region: us-east-1
+    local-storage-path: /tmp/pch-files-test
 
 eureka:
   client:
     enabled: false
-    register-with-eureka: false
-    fetch-registry: false
 
-jwt:
-  secret: test-secret-key-must-be-at-least-32-characters-long
-  access-token-validity-seconds: 60
-  refresh-token-validity-seconds: 120
+logging:
+  level:
+    com.pch.file: DEBUG

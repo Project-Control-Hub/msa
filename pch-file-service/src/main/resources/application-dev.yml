@@ -1,16 +1,18 @@
-# pch-file-service 로컬 개발 전용 프로파일
 spring:
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
-    properties:
-      hibernate:
-        format_sql: true
+
+file:
+  storage:
+    type: local
+
+aws:
+  s3:
+    local-storage-path: /tmp/pch-files-dev
 
 logging:
   level:
-    root: INFO
     com.pch.file: DEBUG
     org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE

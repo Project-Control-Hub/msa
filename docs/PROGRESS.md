@@ -2,7 +2,7 @@
 
 > **목적**: 각 Phase 별 작업 진행 완료 여부와 실제 수행된 작업 내용을 기록합니다.
 > **마지막 갱신**: 2026-04-16
-> **현재 브랜치**: `develop` (Phase 2 완료, Phase 3 진행 준비)
+> **현재 브랜치**: `develop` (Phase 3 완료, Phase 4 대기)
 > **관련 문서**: [INDEX.md](INDEX.md) · [00-OVERVIEW.md](00-OVERVIEW.md)
 
 ---
@@ -14,7 +14,7 @@
 | **Phase 0** — 기반 인프라 구축 | 2주 | 🟢 **완료** | 100% | `feature/phase-0` | PR #1 ✅ |
 | **Phase 1** — 주변 서비스 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-1-*` | PR #3~#8 ✅ |
 | **Phase 2** — 핵심 서비스 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-2-issue` | PR #10 ✅ |
-| **Phase 3** — 검색/보드 분리 | 4주 | 🟡 **진행 중** (워크플로우 작성) | 10% | `feature/phase-3-*` | — |
+| **Phase 3** — 검색/보드 분리 | 4주 | 🟢 **완료** | 100% | `feature/phase-3-*` | PR #12~#14 ✅ |
 | **Phase 4** — 안정화 & 최적화 | 3주 | ⚪ 대기 | 0% | — | — |
 
 **범례**: 🟢 완료 · 🟡 진행 중 · 🔴 블로커 · ⚪ 미시작
@@ -229,30 +229,42 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 
 ---
 
-## 🟡 Phase 3 — 검색/보드 분리 (CQRS)
+## ✅ Phase 3 — 검색/보드 분리 (CQRS)
 
-**상태**: 🟡 진행 중 (태스크 워크플로우 작성 완료, T1 대기)
-**예상 기간**: 4주 (T1 → T2 병렬 가능, T3 마지막 주)
+**상태**: 🟢 완료 (T1~T3 전체 완료)
+**예상 기간**: 4주 (T1 → T2 → T3 순차)
 
 ### 체크리스트 (T1 ~ T3)
 
-- [ ] **T1. Search Service** (`feature/phase-3-search`, 5~7일)
-  - IssueDocument (ES 인덱스) + SavedFilter (JPA)
-  - JQL 파서 (=, !=, IN, >=, ~ 연산자 지원)
-  - Elasticsearch Nori 한글 분석기 + n-gram 자동완성
+- [x] **T1. Search Service** — PR #12 (Squash merged)
+  - IssueDocument (ES @Document, Nori + n-gram) + SavedFilter (JPA)
+  - JqlParser (=, !=, IN, NOT IN, >=, <=, ~, AND/OR → ES BoolQuery)
+  - SearchService (search, suggest, indexIssue, updateStatus, removeIssue, reindexAll)
   - Kafka Consumer 3개 (issue.created/status-changed/deleted → ES 동기화)
   - REST API 7개 (검색/자동완성/재색인/필터 CRUD)
-- [ ] **T2. Board & Report Service** (`feature/phase-3-board-report`, 5~7일)
+  - JqlParserTest(8) + SavedFilterServiceTest(2)
+- [x] **T2. Board & Report Service** — PR #13 (Squash merged)
   - CQRS Read Model 4종 (BoardCard, SprintBurndown, SprintVelocity, DashboardGadget)
+  - Service 5종 (Board, Burndown, Velocity, Dashboard, CFD)
   - Kafka Consumer 4개 (이벤트 → Read Model 동기화)
-  - Redis 캐시 (sprint-board 5min, charts 10~30min, 이벤트 기반 무효화)
-  - 번다운/벨로시티/CFD 3종 차트 API
-  - 대시보드 위젯 CRUD
+  - Redis 캐시 (sprint-board 5min, burndown 10min, velocity 30min, cfd 15min + 이벤트 무효화)
+  - @Scheduled 일별 번다운 스냅샷 배치
   - REST API 8개 (보드/차트/대시보드)
-- [ ] **T3. 통합 검증** (`feature/phase-3-integration-test`, 2~3일)
-  - 이벤트 동기화 정합성 검증
-  - API 계약 레지스트리 업데이트 (42 → 57개)
-  - PROGRESS.md Phase 3 완료 표시
+  - BoardServiceTest(3) + BurndownServiceTest(2) + VelocityServiceTest(2)
+- [x] **T3. 통합 검증** — PR #14 (`feature/phase-3-integration-test`)
+  - Phase3EventSyncTest(5) — 이벤트 동기화 정합성 (Search 3 + Board 4 = 7 Consumer)
+  - ReadModelSchemaTest(4) — BoardCard/IssueDocument 필드 매핑 + Flyway 검증
+  - Phase3ApiContractTest(7) — API 계약 레지스트리 (42+20+15 = 77개)
+  - Phase3EventFlowTest(5) — 이벤트 흐름 매트릭스 + 순환 의존 검증
+  - Phase 3 통합 검증 보고서 (`docs/verification/phase-3-integration-report.md`)
+
+### PR 히스토리
+
+| PR | 브랜치 | 제목 | 상태 |
+|----|--------|------|------|
+| #12 | `feature/phase-3-search` | feat: T1 — Search Service (ES + JQL + Kafka 컨슈머) | ✅ Merged |
+| #13 | `feature/phase-3-board-report` | feat: T2 — Board & Report Service (CQRS + 차트 + Redis) | ✅ Merged |
+| #14 | `feature/phase-3-integration-test` | test: T3 — Phase 3 통합 검증 | ✅ Merged |
 
 ### 참조 문서
 
@@ -301,3 +313,6 @@ Phase 1 완료 → Phase 2 Issue Service 분리 시작.
 | 2026-04-16 | Phase 1 | T6 통합 검증 — 이벤트/API/아키텍처 검증 테스트 17개 + 보고서 | Claude |
 | 2026-04-16 | Phase 2 | Issue Service 분리 (PR#10) — 12 엔티티, 20 API, 6 테스트 | Claude |
 | 2026-04-16 | Phase 3 | 태스크 워크플로우 4개 추가 (T1 Search, T2 Board, T3 통합) | Claude |
+| 2026-04-16 | Phase 3 | T1 Search Service(PR#12) — ES + JQL 파서 + Kafka 컨슈머 3개, 테스트 10건 | Claude |
+| 2026-04-16 | Phase 3 | T2 Board & Report(PR#13) — CQRS Read Model 4종 + Redis 캐시 + 차트 API, 테스트 7건 | Claude |
+| 2026-04-16 | Phase 3 | T3 통합 검증(PR#14) — 이벤트 동기화/Read Model/API 계약 77개, 테스트 21건 | Claude |

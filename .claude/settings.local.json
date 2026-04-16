@@ -1,0 +1,62 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(bun run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status)",
+      "Bash(* --version)",
+      "Bash(* --help *)",
+      "Bash(wc:*)",
+      "Bash(git push:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:docs.docker.com)",
+      "WebFetch(domain:edu.chainguard.dev)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:sliplane.io)",
+      "WebFetch(domain:pythonspeed.com)",
+      "WebFetch(domain:thenewstack.io)",
+      "WebFetch(domain:anchore.com)",
+      "WebFetch(domain:decodeops.substack.com)",
+      "WebFetch(domain:ubuntu.com)",
+      "WebFetch(domain:canonical.com)",
+      "WebFetch(domain:linuxconfig.org)",
+      "WebFetch(domain:hub.docker.com)",
+      "WebFetch(domain:airman604.medium.com)",
+      "WebFetch(domain:nirmata.com)",
+      "WebFetch(domain:www.chainguard.dev)",
+      "WebFetch(domain:www.augmentedmind.de)",
+      "mcp__plugin_oh-my-claudecode_t__python_repl",
+      "WebFetch(domain:techblog.flaviusdinu.com)",
+      "WebFetch(domain:nickjanetakis.com)",
+      "Bash(mkdir -p \"C:/Users/G/.claude/skills/sample-code-builder/evals\")",
+      "Bash(mkdir -p \"C:/Users/G/.claude/skills/sample-code-builder-workspace/iteration-1/eval-0-java-stream/with_skill/outputs\")",
+      "Bash(mkdir -p \"C:/Users/G/.claude/skills/sample-code-builder-workspace/iteration-1/eval-0-java-stream/without_skill/outputs\")",
+      "Bash(mkdir -p \"C:/Users/G/.claude/skills/sample-code-builder-workspace/iteration-1/eval-1-go-goroutine/with_skill/outputs\")",
+      "Bash(mkdir -p \"C:/Users/G/.claude/skills/sample-code-builder-workspace/iteration-1/eval-1-go-goroutine/without_skill/outputs\")",
+      "Bash(nohup python:*)",
+      "Bash(python:*)",
+      "Bash(PYTHONUTF8=1 python:*)",
+      "Bash(start:*)",
+      "Bash(cp \"C:\\\\workspace\\\\develop-study-documents\\\\Skillbook\\\\sample-code-builder\\\\SKILL.md\" \"C:\\\\Users\\\\G\\\\.claude\\\\skills\\\\sample-code-builder\\\\SKILL.md\")",
+      "Bash(cp \"C:\\\\workspace\\\\develop-study-documents\\\\Skillbook\\\\sample-code-builder\\\\evals\\\\evals.json\" \"C:\\\\Users\\\\G\\\\.claude\\\\skills\\\\sample-code-builder\\\\evals\\\\evals.json\")",
+      "Bash(cp \"C:\\\\workspace\\\\develop-study-documents\\\\Skillbook\\\\sample-code-builder\\\\code-comment-style.md\" \"C:\\\\Users\\\\G\\\\.claude\\\\skills\\\\sample-code-builder\\\\code-comment-style.md\")",
+      "Bash(docker scout version:*)",
+      "Bash(docker scout recommendations:*)",
+      "Bash(docker scout:*)",
+      "Bash(docker build:*)",
+      "Bash(curl -s \"https://api.github.com/repos/jesseduffield/lazygit/releases/latest\")"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(sudo *)"
+    ],
+    "defaultMode": "acceptEdits"
+  }
+}

@@ -87,6 +87,14 @@
 - `task-workflows/00-overview.md` ~ `06-integration-testing-workflow.md`
 - `_templates/pr-template.md`, `commit-convention.md`, `definition-of-done.md`
 
+**PromQL & Grafana 실습 가이드** (`docs/guides/promql-grafana-guide.md`)
+- 모니터링 스택 Docker Compose (Prometheus/Grafana/Alertmanager/Node·MySQL·Redis Exporter)
+- Spring Boot Micrometer 메트릭 노출 설정
+- PromQL 기초 문법 + 실전 패턴 30선
+- Grafana 대시보드 JSON 프로비저닝 & 패널 구성
+- Alertmanager 룰 + Slack/Email 알림 채널
+- Phase 0(초기 스택 구축) 및 Phase 4(운영 대시보드/알림) 에서 공통 참조
+
 ### 검증 (Verification)
 
 - [ ] `./gradlew :pch-common:build --no-daemon`
@@ -202,12 +210,14 @@ Phase 0 PR 머지 후 `feature/phase-1-auth` 브랜치 생성 → `task-workflow
 - [ ] Chaos Engineering — 서비스/DB/Kafka 장애 주입
 - [ ] NFR 검증 (가용성 99.9%, p95 < 500ms)
 - [ ] 운영 플레이북 (모니터링/알람/장애대응)
+- [ ] **Grafana 대시보드 구축** — PromQL 가이드 기반 서비스별 대시보드
+- [ ] **Prometheus 알림 룰** — 가용성/지연/에러율 임계치 + Alertmanager 채널
 - [ ] 오토스케일링/용량 산정
 - [ ] GA 릴리스
 
 ### 참조 문서
 
-[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md)
+[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md) · [운영 가이드](phases/phase-4/02-operations-guide.md) · [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md)
 
 ---
 
@@ -219,3 +229,4 @@ Phase 0 PR 머지 후 `feature/phase-1-auth` 브랜치 생성 → `task-workflow
 | 2026-04-16 | Phase 0 | 공통 라이브러리/Gateway/CI·Docker/8서비스 골격 구현 (5커밋) | Claude |
 | 2026-04-16 | Phase 1 | 태스크 워크플로우 문서 10개 추가 | Claude |
 | 2026-04-16 | — | `PROGRESS.md` 신규 작성 | Claude |
+| 2026-04-16 | Phase 0·4 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 상호 참조 | Claude |

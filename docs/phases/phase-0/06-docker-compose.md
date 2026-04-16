@@ -307,6 +307,9 @@ Password: admin
    - Spring Boot 2.1 System Monitor (ID: 10280)
    - Kafka (ID: 7589)
 
+> 📘 **상세 실습 가이드**: [PromQL & Grafana 대시보드 실습 가이드](../../guides/promql-grafana-guide.md)
+> — 모니터링 스택 전체 구성(Prometheus/Grafana/Alertmanager/Exporters) + Spring Boot 메트릭 노출 + PromQL 30선 + Grafana JSON 프로비저닝 + 알림 룰까지 복붙 가능한 스니펫 포함.
+
 ## 서비스 실행 순서
 
 ### 1단계: 인프라 시작 (필수)

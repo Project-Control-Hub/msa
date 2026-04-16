@@ -1,6 +1,6 @@
 # PCH MSA 전환 프로젝트 — 문서 목차
 
-> **전체 문서 수**: 45개 | **마지막 갱신**: 2026-04-16
+> **전체 문서 수**: 46개 | **마지막 갱신**: 2026-04-16
 
 ---
 
@@ -101,6 +101,7 @@
 |------|------|
 | [로컬 개발 환경 가이드](guides/local-dev-setup.md) | 사전 요구사항, Docker Compose, 서비스 실행, IDE 설정 |
 | [코딩 컨벤션](guides/coding-conventions.md) | 패키지 구조, API 설계, 이벤트 네이밍, Git 전략, 테스트 |
+| [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md) | 모니터링 스택, Spring Boot 메트릭, PromQL 30선, 대시보드/알림 (Phase 0·4 참조) |
 
 ---
 
@@ -119,7 +120,7 @@ docs/
 │   ├── phase-3/  (3개 문서)                ← 검색/보드 분리
 │   └── phase-4/  (3개 문서)                ← 안정화 & 최적화
 ├── architecture/ (4개 문서)                ← 아키텍처 설계
-└── guides/       (2개 문서)                ← 개발 가이드
+└── guides/       (3개 문서)                ← 개발 가이드 (PromQL/Grafana 포함)
 ```
 
 ---
@@ -131,3 +132,4 @@ docs/
 | 2026-04-15 | v1.0 | 전체 문서 초안 작성 (34개 문서) |
 | 2026-04-16 | v1.1 | Phase 1 task-workflows 세트 추가 (7개 워크플로우 + 3개 템플릿) |
 | 2026-04-16 | v1.2 | `PROGRESS.md` 추가 — Phase별 작업 진행 현황판 |
+| 2026-04-16 | v1.3 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 참조 |

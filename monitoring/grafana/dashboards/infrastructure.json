@@ -1,0 +1,201 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "pch-infrastructure",
+    "title": "PCH \u2014 Infrastructure",
+    "tags": [
+      "pch",
+      "infra"
+    ],
+    "timezone": "browser",
+    "refresh": "15s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "MySQL \u2014 Active Connections",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "mysql_global_status_threads_connected",
+            "legendFormat": "Active"
+          },
+          {
+            "expr": "mysql_global_variables_max_connections",
+            "legendFormat": "Max"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "MySQL \u2014 QPS",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "rate(mysql_global_status_queries[1m])",
+            "legendFormat": "QPS"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "MySQL \u2014 Slow Queries",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "increase(mysql_global_status_slow_queries[5m])",
+            "legendFormat": "Slow (5m)"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Redis \u2014 Memory Usage",
+        "type": "gauge",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "redis_memory_used_bytes",
+            "legendFormat": "Used"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Redis \u2014 Commands/sec",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 8,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "rate(redis_commands_processed_total[1m])",
+            "legendFormat": "cmd/s"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Redis \u2014 Hit Rate",
+        "type": "gauge",
+        "gridPos": {
+          "h": 8,
+          "w": 8,
+          "x": 16,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)",
+            "legendFormat": "Hit Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Kafka \u2014 Consumer Lag",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "kafka_consumergroup_lag_sum",
+            "legendFormat": "{{ consumergroup }}"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Elasticsearch \u2014 Cluster Health",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "elasticsearch_cluster_health_status",
+            "legendFormat": "{{ color }}"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Elasticsearch \u2014 Search Latency",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "rate(elasticsearch_indices_search_query_time_seconds[5m]) / rate(elasticsearch_indices_search_query_total[5m])",
+            "legendFormat": "Avg Latency"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      }
+    ]
+  }
+}

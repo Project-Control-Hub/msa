@@ -1,0 +1,11 @@
+# pch-search-service 운영 프로파일
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+logging:
+  level:
+    root: WARN
+    com.pch.search: INFO

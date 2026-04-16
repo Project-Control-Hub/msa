@@ -2,7 +2,7 @@
 
 > **목적**: 각 Phase 별 작업 진행 완료 여부와 실제 수행된 작업 내용을 기록합니다.
 > **마지막 갱신**: 2026-04-16
-> **현재 브랜치**: `feature/phase-0` (→ `develop` PR 준비 완료)
+> **현재 브랜치**: `develop` (Phase 1 T1~T4 머지 완료, T5 대기)
 > **관련 문서**: [INDEX.md](INDEX.md) · [00-OVERVIEW.md](00-OVERVIEW.md)
 
 ---
@@ -11,8 +11,8 @@
 
 | Phase | 기간 | 상태 | 진척률 | 브랜치 | PR |
 |-------|------|------|--------|--------|-----|
-| **Phase 0** — 기반 인프라 구축 | 2주 | 🟢 **완료 (PR 대기)** | 100% | `feature/phase-0` | PR 준비 |
-| **Phase 1** — 주변 서비스 분리 | 4주 | ⚪ 대기 (문서만 완료) | 5% | — | — |
+| **Phase 0** — 기반 인프라 구축 | 2주 | 🟢 **완료** | 100% | `feature/phase-0` | PR #1 ✅ |
+| **Phase 1** — 주변 서비스 분리 | 4주 | 🟡 **진행 중** (T1~T4 완료) | 65% | `feature/phase-1-*` | PR #3~#6 ✅ |
 | **Phase 2** — 핵심 서비스 분리 | 4주 | ⚪ 대기 | 0% | — | — |
 | **Phase 3** — 검색/보드 분리 | 4주 | ⚪ 대기 | 0% | — | — |
 | **Phase 4** — 안정화 & 최적화 | 3주 | ⚪ 대기 | 0% | — | — |
@@ -23,7 +23,7 @@
 
 ## ✅ Phase 0 — 기반 인프라 구축
 
-**상태**: 🟢 완료 (PR 대기)
+**상태**: 🟢 완료 (PR #1 머지됨)
 **브랜치**: `feature/phase-0` → `develop`
 **커밋 수**: 5개
 **작업 기간**: 2026-04-15 ~ 2026-04-16
@@ -95,6 +95,16 @@
 - Alertmanager 룰 + Slack/Email 알림 채널
 - Phase 0(초기 스택 구축) 및 Phase 4(운영 대시보드/알림) 에서 공통 참조
 
+**Loki + Tempo 연동 가이드** (`docs/guides/loki-tempo-연동가이드.md`)
+- Observability 3대 축 완성: 메트릭(Prometheus) + 로그(Loki) + 트레이스(Tempo)
+- Loki: Promtail 수집, JSON 로그 포맷(logback-spring.xml), LogQL 문법 + 실전 레시피
+- Tempo: OpenTelemetry Java Agent/Micrometer, TraceQL 문법, 커스텀 Span
+- 상호 연결(Correlation): Exemplar(메트릭→트레이스), TraceID 링크(로그→트레이스), Service Map
+- Docker Compose 확장 (Loki, Promtail, Tempo, OTel Collector)
+- Grafana 통합 대시보드 (로그 패널 + 서비스 맵 + 느린 트레이스)
+- Loki 기반 알림 (에러 급증, OOM 감지, Brute Force 감지)
+- Phase 0(모니터링 스택 확장), Phase 1(JSON 로그 + traceId), Phase 4(통합 대시보드/알림) 에서 참조
+
 ### 검증 (Verification)
 
 - [ ] `./gradlew :pch-common:build --no-daemon`
@@ -116,27 +126,42 @@
 
 ---
 
-## ⚪ Phase 1 — 주변 서비스 분리
+## 🟡 Phase 1 — 주변 서비스 분리
 
-**상태**: ⚪ 대기 (설계 문서 및 태스크 워크플로우만 완료)
-**브랜치**: 아직 생성 안 함
+**상태**: 🟡 진행 중 (T1~T4 완료, T5 대기)
 **예상 기간**: 4주 (T1 → T5 순차, T6 E2E 마지막 주)
 
 ### 체크리스트 (T1 ~ T6)
 
-- [ ] **T1. Auth Service** (`feature/phase-1-auth`, 3~4일)
-  - 회원가입/로그인/JWT 발급/Refresh
-  - `UserCreatedEvent` 발행
-  - Internal API (`GET /internal/users/{id}`)
-- [ ] **T2. Notification Service** (`feature/phase-1-notification`, 2~3일)
-  - 이메일/Slack/인앱 전송 전략
-  - Redis 멱등성 + 지수 백오프 + DLQ
-- [ ] **T3. File Service** (`feature/phase-1-file`, 2~3일)
-  - `FileStorage` 추상화 (S3/LocalDisk)
-  - Presigned URL + MIME 화이트리스트
-- [ ] **T4. Integration Service** (`feature/phase-1-integration`, 3~4일)
-  - GitHub OAuth + HMAC-SHA256 웹훅 검증
-  - `X-GitHub-Delivery` 중복 제거
+- [x] **T1. Auth Service** — PR #3 (Squash merged → `74673e5`)
+  - User/LoginAttempt 도메인 + Flyway
+  - 회원가입/로그인/JWT 발급/Refresh/Logout
+  - `UserCreatedEvent` 발행 (Kafka)
+  - Internal API (`GET /internal/users/{id}/summary`, `POST /batch`)
+  - SecurityConfig (stateless, Gateway 위임)
+  - AuthServiceTest (4), AuthControllerTest (3)
+- [x] **T2. Notification Service** — PR #4 (Squash merged → `af3a3bc`)
+  - Notification/NotificationPreference 도메인 + Flyway
+  - Kafka 이벤트 소비 (USER_CREATED, ISSUE_CREATED, COMMENT_MENTIONED)
+  - Redis 멱등성 (EventDeduplicator, TTL 30분)
+  - Strategy Pattern 발송 (InApp/Email/Slack)
+  - NotificationDispatcher 채널 라우팅
+  - REST API 6개 + NotificationDispatcherTest (3)
+- [x] **T3. File Service** — PR #5 (Squash merged → `1a8cebf`)
+  - Attachment 도메인 + OwnerType enum + Flyway
+  - FileStorage 추상화 (S3FileStorage / LocalDiskFileStorage)
+  - Upload/Download API 5개 (multipart, presigned URL, soft-delete)
+  - MIME 화이트리스트 + 20MB 제한 + 파일명 XSS 방어
+  - IssueDeleted 이벤트 구독 → soft-delete
+  - AttachmentCleanupBatch (매일 03:00, 7일 보존)
+  - AttachmentServiceTest (4)
+- [x] **T4. Integration Service** — PR #6 (Squash merged → `3f1231e`)
+  - VcsConnection/VcsLink/WebhookEventLog 도메인 + Flyway 3개
+  - GitHub OAuth (authorize→callback→AES-GCM 암호화 저장)
+  - Webhook 수신 (HMAC-SHA256 + deliveryId 중복방지)
+  - push→커밋 연결 / PR→이슈 연결 + VcsCommitLinkedEvent 발행
+  - VCS 링크 조회 API
+  - SignatureVerifierTest(3) + IssueKeyExtractorTest(3) + TokenEncryptorTest(2)
 - [ ] **T5. Project Service** (`feature/phase-1-project`, 5~7일)
   - Project/Sprint/Version/Label/AutomationRule 도메인
   - `SprintCompletedEvent` 발행
@@ -145,6 +170,15 @@
   - k6 성능 기준선 (p95 < 300ms)
   - Chaos 시나리오 5종
 
+### PR 히스토리
+
+| PR | 브랜치 | 제목 | 상태 |
+|----|--------|------|------|
+| #3 | `feature/phase-1-auth` | feat(auth): Phase 1 — pch-auth-service 분리 | ✅ Merged |
+| #4 | `feature/phase-1-notification` | feat(notification): Phase 1 — pch-notification-service 분리 | ✅ Merged |
+| #5 | `feature/phase-1-file` | feat(file): Phase 1 — pch-file-service 분리 | ✅ Merged |
+| #6 | `feature/phase-1-integration` | feat(integration): Phase 1 — pch-integration-service 분리 | ✅ Merged |
+
 ### 참조 문서
 
 - [Phase 1 개요](phases/phase-1/00-phase-1-overview.md)
@@ -152,7 +186,7 @@
 
 ### 다음 액션
 
-Phase 0 PR 머지 후 `feature/phase-1-auth` 브랜치 생성 → `task-workflows/01-auth-workflow.md` 의 6단계 시작.
+T5 Project Service 브랜치 생성 → `task-workflows/05-project-workflow.md` 의 5단계 시작.
 
 ---
 
@@ -212,12 +246,15 @@ Phase 0 PR 머지 후 `feature/phase-1-auth` 브랜치 생성 → `task-workflow
 - [ ] 운영 플레이북 (모니터링/알람/장애대응)
 - [ ] **Grafana 대시보드 구축** — PromQL 가이드 기반 서비스별 대시보드
 - [ ] **Prometheus 알림 룰** — 가용성/지연/에러율 임계치 + Alertmanager 채널
+- [ ] **Loki 로그 대시보드** — 에러 로그 실시간 패널, LogQL 메트릭 쿼리
+- [ ] **Tempo 트레이스 연동** — Service Map, Exemplar 연결, 느린 트레이스 테이블
+- [ ] **Loki 기반 알림** — 에러 급증, OOM 감지, Brute Force 감지
 - [ ] 오토스케일링/용량 산정
 - [ ] GA 릴리스
 
 ### 참조 문서
 
-[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md) · [운영 가이드](phases/phase-4/02-operations-guide.md) · [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md)
+[Phase 4 개요](phases/phase-4/00-phase-4-overview.md) · [부하 테스트 & Chaos](phases/phase-4/01-load-testing.md) · [운영 가이드](phases/phase-4/02-operations-guide.md) · [PromQL & Grafana 실습 가이드](guides/promql-grafana-guide.md) · [Loki + Tempo 연동 가이드](guides/loki-tempo-연동가이드.md)
 
 ---
 
@@ -230,3 +267,5 @@ Phase 0 PR 머지 후 `feature/phase-1-auth` 브랜치 생성 → `task-workflow
 | 2026-04-16 | Phase 1 | 태스크 워크플로우 문서 10개 추가 | Claude |
 | 2026-04-16 | — | `PROGRESS.md` 신규 작성 | Claude |
 | 2026-04-16 | Phase 0·4 | `guides/promql-grafana-guide.md` 추가 + Phase 0·4 에서 상호 참조 | Claude |
+| 2026-04-16 | Phase 1 | T1 Auth(PR#3), T2 Notification(PR#4), T3 File(PR#5), T4 Integration(PR#6) 완료 | Claude |
+| 2026-04-16 | Phase 0·1·4 | `guides/loki-tempo-연동가이드.md` 추가 + Phase 0·1·4 에서 상호 참조 | Claude |

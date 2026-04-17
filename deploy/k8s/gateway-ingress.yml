@@ -1,0 +1,38 @@
+---
+# ── Gateway Ingress ───────────────────────────────────────────────────────────
+# Requires an Ingress controller (e.g., ingress-nginx).
+# Minikube: minikube addons enable ingress
+# Production: install ingress-nginx or AWS ALB controller.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pch-gateway-ingress
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: pch-gateway
+    app.kubernetes.io/part-of: pch-msa
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Uncomment to enable TLS termination via cert-manager:
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: pch.example.com    # Replace with your actual domain
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pch-gateway
+                port:
+                  number: 8000
+  # Uncomment and configure TLS for production:
+  # tls:
+  #   - hosts:
+  #       - pch.example.com
+  #     secretName: pch-tls-secret

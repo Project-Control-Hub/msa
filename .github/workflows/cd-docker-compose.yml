@@ -1,0 +1,335 @@
+name: CD — Docker Compose Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Docker image tag to deploy (default: sha-<short-sha>)"
+        required: false
+        default: ""
+      service:
+        description: "Deploy a single service only (leave empty for full deploy)"
+        required: false
+        default: ""
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+# ---------------------------------------------------------------------------
+# JOBS
+# ---------------------------------------------------------------------------
+jobs:
+  # -------------------------------------------------------------------------
+  # 1. Build & push all Docker images to GHCR
+  # -------------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - pch-discovery
+          - pch-gateway
+          - pch-auth-service
+          - pch-project-service
+          - pch-issue-service
+          - pch-board-report-service
+          - pch-search-service
+          - pch-notification-service
+          - pch-file-service
+          - pch-integration-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          if [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="sha-${SHORT_SHA}"
+          fi
+          echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: SERVICE=${{ matrix.service }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+
+  # -------------------------------------------------------------------------
+  # 2. Deploy to production server via SSH
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: production
+      url: http://${{ secrets.DEPLOY_HOST }}:8000
+
+    steps:
+      - name: Checkout (for compose file)
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Copy compose files to server
+        run: |
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            deploy/docker-compose/docker-compose.prod.yml \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}/docker-compose.prod.yml"
+
+          # Copy init-db.sql (needed for MySQL volume mount)
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "mkdir -p ${{ secrets.DEPLOY_PATH }}/docker"
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            docker/init-db.sql \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}/docker/init-db.sql"
+
+      - name: Write .env on server
+        run: |
+          # Build the .env content from GitHub secrets and the resolved image tag
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cat > ${{ secrets.DEPLOY_PATH }}/.env" << EOF
+          # Auto-generated by GitHub Actions — do not edit manually
+          # Workflow run: ${{ github.run_id }} | Commit: ${{ github.sha }}
+
+          IMAGE_REGISTRY=ghcr.io
+          IMAGE_REPO=${{ github.repository }}
+          IMAGE_TAG=${IMAGE_TAG}
+
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_USER=${{ secrets.MYSQL_USER }}
+          MYSQL_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+
+          AUTH_DB_NAME=pch_auth
+          PROJECT_DB_NAME=pch_project
+          ISSUE_DB_NAME=pch_issue
+          BOARD_REPORT_DB_NAME=pch_board_report
+          NOTIFICATION_DB_NAME=pch_notification
+          INTEGRATION_DB_NAME=pch_integration
+
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          REDIS_MAX_MEMORY=512mb
+
+          KAFKA_CLUSTER_ID=${{ secrets.KAFKA_CLUSTER_ID }}
+          KAFKA_LOG_RETENTION_HOURS=168
+
+          ES_JAVA_OPTS=-Xms512m -Xmx512m
+
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          JWT_EXPIRATION=3600000
+          JWT_REFRESH_EXPIRATION=604800000
+
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          AWS_S3_BUCKET=${{ secrets.AWS_S3_BUCKET }}
+
+          GRAFANA_ADMIN_USER=admin
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          GRAFANA_ROOT_URL=http://${{ secrets.DEPLOY_HOST }}:3000
+
+          PROMETHEUS_RETENTION=15d
+          EOF
+
+      - name: Log in to GHCR on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Pull latest images on server
+        run: |
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+          SERVICES="${{ github.event.inputs.service }}"
+
+          if [[ -n "${SERVICES}" ]]; then
+            # Single-service deploy
+            ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "cd '${{ secrets.DEPLOY_PATH }}' && \
+               docker compose -f docker-compose.prod.yml --env-file .env pull ${SERVICES}"
+          else
+            # Pull all app images
+            ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "cd '${{ secrets.DEPLOY_PATH }}' && \
+               docker compose -f docker-compose.prod.yml --env-file .env pull \
+                 pch-discovery \
+                 pch-gateway \
+                 pch-auth-service \
+                 pch-project-service \
+                 pch-issue-service \
+                 pch-board-report-service \
+                 pch-search-service \
+                 pch-notification-service \
+                 pch-file-service \
+                 pch-integration-service"
+          fi
+
+      - name: Start / update services
+        run: |
+          SERVICES="${{ github.event.inputs.service }}"
+
+          if [[ -n "${SERVICES}" ]]; then
+            # Rolling restart of a single service (no-deps keeps infra running)
+            ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "cd '${{ secrets.DEPLOY_PATH }}' && \
+               docker compose -f docker-compose.prod.yml --env-file .env \
+                 up -d --no-build --no-deps ${SERVICES}"
+          else
+            # Full ordered bring-up (infra first, then services)
+            ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" << 'REMOTE'
+          set -e
+          cd "${{ secrets.DEPLOY_PATH }}"
+          COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env"
+
+          echo "==> Starting infrastructure..."
+          ${COMPOSE} up -d mysql redis kafka elasticsearch prometheus grafana
+
+          echo "==> Waiting for infra health (up to 3 min)..."
+          timeout 180 bash -c '
+            for svc in mysql redis kafka elasticsearch; do
+              while true; do
+                status=$(docker inspect --format="{{.State.Health.Status}}" "pch-${svc}" 2>/dev/null || echo "missing")
+                [ "${status}" = "healthy" ] && break
+                echo "  waiting for pch-${svc}: ${status}"
+                sleep 5
+              done
+            done
+          '
+
+          echo "==> Starting pch-discovery..."
+          ${COMPOSE} up -d --no-build pch-discovery
+
+          echo "==> Waiting for pch-discovery..."
+          timeout 120 bash -c '
+            while true; do
+              status=$(docker inspect --format="{{.State.Health.Status}}" pch-discovery 2>/dev/null || echo "missing")
+              [ "${status}" = "healthy" ] && break
+              echo "  waiting for pch-discovery: ${status}"
+              sleep 5
+            done
+          '
+
+          echo "==> Starting pch-gateway..."
+          ${COMPOSE} up -d --no-build pch-gateway
+
+          echo "==> Starting all application services..."
+          ${COMPOSE} up -d --no-build \
+            pch-auth-service \
+            pch-project-service \
+            pch-issue-service \
+            pch-board-report-service \
+            pch-search-service \
+            pch-notification-service \
+            pch-file-service \
+            pch-integration-service
+
+          echo "==> Removing dangling images..."
+          docker image prune -f
+
+          echo "==> Deployment complete."
+          REMOTE
+          fi
+
+      - name: Print container status
+        if: always()
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd '${{ secrets.DEPLOY_PATH }}' && \
+             docker compose -f docker-compose.prod.yml --env-file .env ps"
+
+      - name: Verify gateway health
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_SSH_PORT || '22' }}" \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "curl -sf http://localhost:8000/actuator/health | grep -q '\"status\":\"UP\"' && \
+             echo 'Gateway is UP' || echo 'Gateway health check failed (may still be starting)'"
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+# ---------------------------------------------------------------------------
+# Required GitHub Secrets
+# ---------------------------------------------------------------------------
+# Repository secrets (Settings → Secrets and variables → Actions):
+#
+# Infrastructure:
+#   MYSQL_ROOT_PASSWORD      — MySQL root password
+#   MYSQL_USER               — MySQL application user
+#   MYSQL_PASSWORD           — MySQL application password
+#   REDIS_PASSWORD           — Redis auth password
+#   KAFKA_CLUSTER_ID         — KRaft cluster UUID (generate with kafka-storage random-uuid)
+#   JWT_SECRET               — JWT signing secret (min 32 chars)
+#   AWS_ACCESS_KEY_ID        — AWS IAM access key for S3
+#   AWS_SECRET_ACCESS_KEY    — AWS IAM secret key for S3
+#   AWS_REGION               — AWS region (e.g. ap-northeast-2)
+#   AWS_S3_BUCKET            — S3 bucket name for file uploads
+#   GRAFANA_ADMIN_PASSWORD   — Grafana admin password
+#
+# Deployment target:
+#   DEPLOY_HOST              — Production server hostname or IP
+#   DEPLOY_SSH_PORT          — SSH port (default 22)
+#   DEPLOY_USER              — SSH user on the target server
+#   DEPLOY_SSH_PRIVATE_KEY   — SSH private key (PEM format, no passphrase)
+#   DEPLOY_PATH              — Absolute path on server (e.g. /opt/pch-msa)

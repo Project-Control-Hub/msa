@@ -1,0 +1,178 @@
+---
+# ── MySQL init-db ConfigMap ──────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-db
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: pch-msa
+data:
+  init-db.sql: |
+    -- PCH MSA: 서비스별 데이터베이스 초기 생성
+    CREATE DATABASE IF NOT EXISTS pch_auth
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_project
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_issue
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_board_report
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_search
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_notification
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_file
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    CREATE DATABASE IF NOT EXISTS pch_integration
+        DEFAULT CHARACTER SET utf8mb4
+        DEFAULT COLLATE utf8mb4_unicode_ci;
+
+    -- 서비스별 전용 사용자
+    CREATE USER IF NOT EXISTS 'pch_auth'@'%' IDENTIFIED BY 'authpass';
+    GRANT ALL PRIVILEGES ON pch_auth.* TO 'pch_auth'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_project'@'%' IDENTIFIED BY 'projectpass';
+    GRANT ALL PRIVILEGES ON pch_project.* TO 'pch_project'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_issue'@'%' IDENTIFIED BY 'issuepass';
+    GRANT ALL PRIVILEGES ON pch_issue.* TO 'pch_issue'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_board_report'@'%' IDENTIFIED BY 'boardpass';
+    GRANT ALL PRIVILEGES ON pch_board_report.* TO 'pch_board_report'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_search'@'%' IDENTIFIED BY 'searchpass';
+    GRANT ALL PRIVILEGES ON pch_search.* TO 'pch_search'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_notification'@'%' IDENTIFIED BY 'notifpass';
+    GRANT ALL PRIVILEGES ON pch_notification.* TO 'pch_notification'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_file'@'%' IDENTIFIED BY 'filepass';
+    GRANT ALL PRIVILEGES ON pch_file.* TO 'pch_file'@'%';
+
+    CREATE USER IF NOT EXISTS 'pch_integration'@'%' IDENTIFIED BY 'integrationpass';
+    GRANT ALL PRIVILEGES ON pch_integration.* TO 'pch_integration'@'%';
+
+    FLUSH PRIVILEGES;
+
+---
+# ── MySQL StatefulSet ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pch-mysql
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: pch-msa
+spec:
+  serviceName: pch-mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mysql
+        app.kubernetes.io/part-of: pch-msa
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pch-common-secret
+                  key: MYSQL_ROOT_PASSWORD
+          args:
+            - "--character-set-server=utf8mb4"
+            - "--collation-server=utf8mb4_unicode_ci"
+            - "--default-time-zone=+09:00"
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+            - name: init-db
+              mountPath: /docker-entrypoint-initdb.d/init-db.sql
+              subPath: init-db.sql
+              readOnly: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - localhost
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+      volumes:
+        - name: init-db
+          configMap:
+            name: mysql-init-db
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# ── MySQL Service ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pch-mysql
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/part-of: pch-msa
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306

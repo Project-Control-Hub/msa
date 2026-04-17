@@ -1,0 +1,1385 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  PCH MSA — ECS Services Stack.
+  ECS Task Definitions and Services for all 10 microservices with Fargate launch type,
+  Service Discovery, health checks, SSM parameter references, and CloudWatch logging.
+
+# ──────────────────────────────────────────────
+#  Parameters
+# ──────────────────────────────────────────────
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Default: dev
+    Description: Deployment environment
+
+  NetworkStackName:
+    Type: String
+    Default: pch-msa-dev-network
+    Description: VPC network CloudFormation stack name
+
+  ClusterStackName:
+    Type: String
+    Default: pch-msa-dev-cluster
+    Description: ECS cluster CloudFormation stack name
+
+  ImageTag:
+    Type: String
+    Default: latest
+    Description: Docker image tag to deploy (e.g., git SHA or semver)
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 10
+    Description: Desired number of ECS task instances per service
+
+  # Image URI overrides per service (populated by CD pipeline)
+  DiscoveryImageUri:
+    Type: String
+    Default: ""
+    Description: Full ECR image URI for pch-discovery (leave empty to use cluster stack export)
+
+  GatewayImageUri:
+    Type: String
+    Default: ""
+
+  AuthServiceImageUri:
+    Type: String
+    Default: ""
+
+  ProjectServiceImageUri:
+    Type: String
+    Default: ""
+
+  IssueServiceImageUri:
+    Type: String
+    Default: ""
+
+  BoardReportServiceImageUri:
+    Type: String
+    Default: ""
+
+  SearchServiceImageUri:
+    Type: String
+    Default: ""
+
+  NotificationServiceImageUri:
+    Type: String
+    Default: ""
+
+  FileServiceImageUri:
+    Type: String
+    Default: ""
+
+  IntegrationServiceImageUri:
+    Type: String
+    Default: ""
+
+# ──────────────────────────────────────────────
+#  Conditions
+# ──────────────────────────────────────────────
+Conditions:
+  UseDiscoveryImageOverride: !Not [!Equals [!Ref DiscoveryImageUri, ""]]
+  UseGatewayImageOverride: !Not [!Equals [!Ref GatewayImageUri, ""]]
+  UseAuthServiceImageOverride: !Not [!Equals [!Ref AuthServiceImageUri, ""]]
+  UseProjectServiceImageOverride: !Not [!Equals [!Ref ProjectServiceImageUri, ""]]
+  UseIssueServiceImageOverride: !Not [!Equals [!Ref IssueServiceImageUri, ""]]
+  UseBoardReportServiceImageOverride: !Not [!Equals [!Ref BoardReportServiceImageUri, ""]]
+  UseSearchServiceImageOverride: !Not [!Equals [!Ref SearchServiceImageUri, ""]]
+  UseNotificationServiceImageOverride: !Not [!Equals [!Ref NotificationServiceImageUri, ""]]
+  UseFileServiceImageOverride: !Not [!Equals [!Ref FileServiceImageUri, ""]]
+  UseIntegrationServiceImageOverride: !Not [!Equals [!Ref IntegrationServiceImageUri, ""]]
+
+# ──────────────────────────────────────────────
+#  Resources
+# ──────────────────────────────────────────────
+Resources:
+
+  # ═══════════════════════════════════════════════
+  #  1. pch-discovery  (port 8761)
+  #     CPU: 256  MEM: 512  —  lightweight registry
+  # ═══════════════════════════════════════════════
+  DiscoveryServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-discovery
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  DiscoveryTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-discovery"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-discovery
+          Image: !If
+            - UseDiscoveryImageOverride
+            - !Ref DiscoveryImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrDiscoveryUri"
+          PortMappings:
+            - ContainerPort: 8761
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8761"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8761/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 60
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-discovery"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  DiscoveryEcsService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-discovery"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref DiscoveryTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt DiscoveryServiceDiscovery.Arn
+          Port: 8761
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  2. pch-gateway  (port 8000)
+  # ═══════════════════════════════════════════════
+  GatewayServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-gateway
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  GatewayTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-gateway"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-gateway
+          Image: !If
+            - UseGatewayImageOverride
+            - !Ref GatewayImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrGatewayUri"
+          PortMappings:
+            - ContainerPort: 8000
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8000"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/jwt/secret"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8000/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-gateway"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  GatewayEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: DiscoveryEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-gateway"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref GatewayTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      LoadBalancers:
+        - ContainerName: pch-gateway
+          ContainerPort: 8000
+          TargetGroupArn:
+            Fn::ImportValue: !Sub "${ClusterStackName}-GatewayTargetGroupArn"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt GatewayServiceDiscovery.Arn
+          Port: 8000
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  3. pch-auth-service  (port 8081, DB+Redis+Kafka)
+  # ═══════════════════════════════════════════════
+  AuthServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-auth-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  AuthServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-auth-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-auth-service
+          Image: !If
+            - UseAuthServiceImageOverride
+            - !Ref AuthServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrAuthServiceUri"
+          PortMappings:
+            - ContainerPort: 8081
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8081"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_auth/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_auth/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_auth/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+            - Name: JWT_SECRET
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/jwt/secret"
+            - Name: JWT_EXPIRATION
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/jwt/expiration"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8081/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-auth-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  AuthEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-auth-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref AuthServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt AuthServiceDiscovery.Arn
+          Port: 8081
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  4. pch-project-service  (port 8082, DB+Redis)
+  # ═══════════════════════════════════════════════
+  ProjectServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-project-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  ProjectServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-project-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-project-service
+          Image: !If
+            - UseProjectServiceImageOverride
+            - !Ref ProjectServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrProjectServiceUri"
+          PortMappings:
+            - ContainerPort: 8082
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8082"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_project/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_project/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_project/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8082/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-project-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  ProjectEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-project-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref ProjectServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ProjectServiceDiscovery.Arn
+          Port: 8082
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  5. pch-issue-service  (port 8083, DB+Redis+Kafka)
+  # ═══════════════════════════════════════════════
+  IssueServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-issue-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  IssueServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-issue-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-issue-service
+          Image: !If
+            - UseIssueServiceImageOverride
+            - !Ref IssueServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrIssueServiceUri"
+          PortMappings:
+            - ContainerPort: 8083
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8083"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_issue/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_issue/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_issue/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8083/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-issue-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  IssueEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-issue-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref IssueServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt IssueServiceDiscovery.Arn
+          Port: 8083
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  6. pch-board-report-service  (port 8084, DB+Redis+Kafka)
+  # ═══════════════════════════════════════════════
+  BoardReportServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-board-report-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  BoardReportServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-board-report-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-board-report-service
+          Image: !If
+            - UseBoardReportServiceImageOverride
+            - !Ref BoardReportServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrBoardReportServiceUri"
+          PortMappings:
+            - ContainerPort: 8084
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8084"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_board_report/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_board_report/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_board_report/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8084/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-board-report-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  BoardReportEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-board-report-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref BoardReportServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt BoardReportServiceDiscovery.Arn
+          Port: 8084
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  7. pch-search-service  (port 8085, Redis+Kafka+OpenSearch)
+  # ═══════════════════════════════════════════════
+  SearchServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-search-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  SearchServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-search-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-search-service
+          Image: !If
+            - UseSearchServiceImageOverride
+            - !Ref SearchServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrSearchServiceUri"
+          PortMappings:
+            - ContainerPort: 8085
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8085"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+            - Name: OPENSEARCH_URIS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/opensearch/endpoint"
+            - Name: OPENSEARCH_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/opensearch/username"
+            - Name: OPENSEARCH_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/opensearch/password"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8085/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-search-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  SearchEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-search-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref SearchServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt SearchServiceDiscovery.Arn
+          Port: 8085
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  8. pch-notification-service  (port 8086, DB+Redis+Kafka)
+  # ═══════════════════════════════════════════════
+  NotificationServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-notification-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  NotificationServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-notification-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-notification-service
+          Image: !If
+            - UseNotificationServiceImageOverride
+            - !Ref NotificationServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrNotificationServiceUri"
+          PortMappings:
+            - ContainerPort: 8086
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8086"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_notification/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_notification/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_notification/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8086/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-notification-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  NotificationEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-notification-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref NotificationServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt NotificationServiceDiscovery.Arn
+          Port: 8086
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  9. pch-file-service  (port 8087, Redis+S3)
+  # ═══════════════════════════════════════════════
+  FileServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-file-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  FileServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-file-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-FileServiceTaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-file-service
+          Image: !If
+            - UseFileServiceImageOverride
+            - !Ref FileServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrFileServiceUri"
+          PortMappings:
+            - ContainerPort: 8087
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8087"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+          Secrets:
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: AWS_S3_BUCKET
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/s3/bucket-name"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8087/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-file-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  FileEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-file-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref FileServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt FileServiceDiscovery.Arn
+          Port: 8087
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ═══════════════════════════════════════════════
+  #  10. pch-integration-service  (port 8088, DB+Redis+Kafka)
+  # ═══════════════════════════════════════════════
+  IntegrationServiceDiscovery:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: pch-integration-service
+      NamespaceId:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ServiceDiscoveryNamespaceId"
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  IntegrationServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "pch-msa-${Environment}-pch-integration-service"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ClusterStackName}-TaskRoleArn"
+      ContainerDefinitions:
+        - Name: pch-integration-service
+          Image: !If
+            - UseIntegrationServiceImageOverride
+            - !Ref IntegrationServiceImageUri
+            - !Sub
+              - "${Uri}:${ImageTag}"
+              - Uri:
+                  Fn::ImportValue: !Sub "${ClusterStackName}-EcrIntegrationServiceUri"
+          PortMappings:
+            - ContainerPort: 8088
+              Protocol: tcp
+          Essential: true
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: !Ref Environment
+            - Name: SERVER_PORT
+              Value: "8088"
+            - Name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+              Value: "http://pch-discovery.pch.local:8761/eureka/"
+            - Name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              Value: health,info,metrics,prometheus
+          Secrets:
+            - Name: SPRING_DATASOURCE_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_integration/url"
+            - Name: SPRING_DATASOURCE_USERNAME
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_integration/username"
+            - Name: SPRING_DATASOURCE_PASSWORD
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/db/pch_integration/password"
+            - Name: SPRING_DATA_REDIS_HOST
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/host"
+            - Name: SPRING_DATA_REDIS_PORT
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/redis/port"
+            - Name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/kafka/bootstrap-servers"
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget -qO- http://localhost:8088/actuator/health || exit 1"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 90
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/pch-msa/${Environment}/pch-integration-service"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          StopTimeout: 30
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  IntegrationEcsService:
+    Type: AWS::ECS::Service
+    DependsOn: GatewayEcsService
+    Properties:
+      ServiceName: !Sub "pch-msa-${Environment}-pch-integration-service"
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStackName}-ClusterArn"
+      TaskDefinition: !Ref IntegrationServiceTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet1Id"
+            - Fn::ImportValue: !Sub "${NetworkStackName}-PrivateSubnet2Id"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${NetworkStackName}-EcsTaskSecurityGroupId"
+      ServiceRegistries:
+        - RegistryArn: !GetAtt IntegrationServiceDiscovery.Arn
+          Port: 8088
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableECSManagedTags: true
+      PropagateTags: TASK_DEFINITION
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+# ──────────────────────────────────────────────
+#  Outputs
+# ──────────────────────────────────────────────
+Outputs:
+  DiscoveryServiceArn:
+    Value: !Ref DiscoveryEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-DiscoveryServiceArn"
+
+  GatewayServiceArn:
+    Value: !Ref GatewayEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-GatewayServiceArn"
+
+  AuthServiceArn:
+    Value: !Ref AuthEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-AuthServiceArn"
+
+  ProjectServiceArn:
+    Value: !Ref ProjectEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-ProjectServiceArn"
+
+  IssueServiceArn:
+    Value: !Ref IssueEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-IssueServiceArn"
+
+  BoardReportServiceArn:
+    Value: !Ref BoardReportEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-BoardReportServiceArn"
+
+  SearchServiceArn:
+    Value: !Ref SearchEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-SearchServiceArn"
+
+  NotificationServiceArn:
+    Value: !Ref NotificationEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-NotificationServiceArn"
+
+  FileServiceArn:
+    Value: !Ref FileEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-FileServiceArn"
+
+  IntegrationServiceArn:
+    Value: !Ref IntegrationEcsService
+    Export:
+      Name: !Sub "${AWS::StackName}-IntegrationServiceArn"

@@ -1,0 +1,105 @@
+---
+# ── pch-auth-service Deployment ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pch-auth-service
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: pch-auth-service
+    app.kubernetes.io/part-of: pch-msa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pch-auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pch-auth-service
+        app.kubernetes.io/part-of: pch-msa
+    spec:
+      containers:
+        - name: pch-auth-service
+          image: ghcr.io/OWNER/pch-msa/pch-auth-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+              name: http
+          envFrom:
+            - configMapRef:
+                name: pch-common-config
+            - secretRef:
+                name: pch-common-secret
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:mysql://$(MYSQL_HOST):$(MYSQL_PORT)/pch_auth?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "pch_auth"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pch-common-secret
+                  key: DB_PASSWORD_AUTH
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: pch-common-config
+                  key: REDIS_HOST
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: pch-common-config
+                  key: REDIS_PORT
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: pch-common-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+          resources:
+            requests:
+              cpu: 256m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+---
+# ── pch-auth-service Service ─────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pch-auth-service
+  namespace: pch
+  labels:
+    app.kubernetes.io/name: pch-auth-service
+    app.kubernetes.io/part-of: pch-msa
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: pch-auth-service
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081

@@ -1,0 +1,772 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  PCH MSA — ECS Cluster Stack.
+  Creates ECS Cluster (Fargate), ALB, CloudWatch Log Groups,
+  Service Discovery namespace (pch.local), ECR repositories,
+  and IAM roles for all 10 services.
+
+# ──────────────────────────────────────────────
+#  Parameters
+# ──────────────────────────────────────────────
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Default: dev
+    Description: Deployment environment
+
+  NetworkStackName:
+    Type: String
+    Default: pch-msa-dev-network
+    Description: Name of the VPC network CloudFormation stack (for imports)
+
+  ALBAccessLogsBucket:
+    Type: String
+    Default: ""
+    Description: "(Optional) S3 bucket name for ALB access logs. Leave empty to disable."
+
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+    Description: CloudWatch Logs retention period in days
+
+# ──────────────────────────────────────────────
+#  Conditions
+# ──────────────────────────────────────────────
+Conditions:
+  EnableALBLogs: !Not [!Equals [!Ref ALBAccessLogsBucket, ""]]
+
+# ──────────────────────────────────────────────
+#  Resources
+# ──────────────────────────────────────────────
+Resources:
+
+  # ─────────────────────────────────────────────
+  #  ECR Repositories
+  # ─────────────────────────────────────────────
+  EcrDiscovery:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-discovery"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 10 tagged images",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPrefixList": ["v"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Expire untagged images older than 7 days",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrGateway:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-gateway"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrAuthService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-auth-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrProjectService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-project-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrIssueService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-issue-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrBoardReportService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-board-report-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrSearchService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-search-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrNotificationService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-notification-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrFileService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-file-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  EcrIntegrationService:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "pch-msa/${Environment}/pch-integration-service"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !GetAtt EcrDiscovery.LifecyclePolicy
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  ECS Cluster
+  # ─────────────────────────────────────────────
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "pch-msa-${Environment}"
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+          Base: 1
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 2
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  Application Load Balancer
+  # ─────────────────────────────────────────────
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "pch-msa-${Environment}-alb"
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      Subnets:
+        - Fn::ImportValue: !Sub "${NetworkStackName}-PublicSubnet1Id"
+        - Fn::ImportValue: !Sub "${NetworkStackName}-PublicSubnet2Id"
+      SecurityGroups:
+        - Fn::ImportValue: !Sub "${NetworkStackName}-AlbSecurityGroupId"
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+        - Key: deletion_protection.enabled
+          Value: "false"
+        - !If
+          - EnableALBLogs
+          - Key: access_logs.s3.enabled
+            Value: "true"
+          - !Ref AWS::NoValue
+        - !If
+          - EnableALBLogs
+          - Key: access_logs.s3.bucket
+            Value: !Ref ALBAccessLogsBucket
+          - !Ref AWS::NoValue
+        - !If
+          - EnableALBLogs
+          - Key: access_logs.s3.prefix
+            Value: !Sub "pch-msa-${Environment}"
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-alb"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ALB Listener — HTTP (redirects to HTTPS in prod; forwards in dev)
+  ALBListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GatewayTargetGroup
+
+  # Target Group for pch-gateway (port 8000)
+  GatewayTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "pch-msa-${Environment}-gateway-tg"
+      VpcId:
+        Fn::ImportValue: !Sub "${NetworkStackName}-VpcId"
+      Protocol: HTTP
+      Port: 8000
+      TargetType: ip
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /actuator/health
+      HealthCheckPort: "8000"
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+        - Key: stickiness.enabled
+          Value: "false"
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-gateway-tg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  Service Discovery — AWS Cloud Map
+  # ─────────────────────────────────────────────
+  ServiceDiscoveryNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: pch.local
+      Vpc:
+        Fn::ImportValue: !Sub "${NetworkStackName}-VpcId"
+      Description: Private DNS namespace for pch-msa service discovery
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  CloudWatch Log Groups (one per service)
+  # ─────────────────────────────────────────────
+  LogGroupDiscovery:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-discovery"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupGateway:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-gateway"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupAuthService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-auth-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupProjectService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-project-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupIssueService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-issue-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupBoardReportService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-board-report-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupSearchService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-search-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupNotificationService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-notification-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupFileService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-file-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  LogGroupIntegrationService:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/pch-msa/${Environment}/pch-integration-service"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  IAM — ECS Task Execution Role
+  # ─────────────────────────────────────────────
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "pch-msa-${Environment}-ecs-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SSMParameterReadAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/*"
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+        - PolicyName: CloudWatchLogsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/pch-msa/${Environment}/*"
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  IAM — ECS Task Role (general services)
+  # ─────────────────────────────────────────────
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "pch-msa-${Environment}-ecs-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudMapAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - servicediscovery:RegisterInstance
+                  - servicediscovery:DeregisterInstance
+                  - servicediscovery:DiscoverInstances
+                Resource: "*"
+        - PolicyName: CloudWatchMetrics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                Resource: "*"
+        - PolicyName: SSMParameterRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/*"
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ─────────────────────────────────────────────
+  #  IAM — ECS Task Role for file-service (S3 access)
+  # ─────────────────────────────────────────────
+  EcsFileServiceTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "pch-msa-${Environment}-ecs-file-service-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudMapAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - servicediscovery:RegisterInstance
+                  - servicediscovery:DeregisterInstance
+                  - servicediscovery:DiscoverInstances
+                Resource: "*"
+        - PolicyName: CloudWatchMetrics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+        - PolicyName: SSMParameterRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/pch-msa/${Environment}/*"
+        - PolicyName: S3FileAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:GetObjectVersion
+                  - s3:DeleteObjectVersion
+                Resource:
+                  - !Sub "arn:aws:s3:::pch-msa-${Environment}-files"
+                  - !Sub "arn:aws:s3:::pch-msa-${Environment}-files/*"
+      Tags:
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+# ──────────────────────────────────────────────
+#  Outputs
+# ──────────────────────────────────────────────
+Outputs:
+  ClusterName:
+    Description: ECS Cluster name
+    Value: !Ref EcsCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-ClusterName"
+
+  ClusterArn:
+    Description: ECS Cluster ARN
+    Value: !GetAtt EcsCluster.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ClusterArn"
+
+  ALBArn:
+    Description: ALB ARN
+    Value: !Ref ALB
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBArn"
+
+  ALBDnsName:
+    Description: ALB DNS Name
+    Value: !GetAtt ALB.DNSName
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBDnsName"
+
+  ALBListenerArn:
+    Description: ALB HTTP Listener ARN
+    Value: !Ref ALBListenerHTTP
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBListenerArn"
+
+  GatewayTargetGroupArn:
+    Description: Gateway Target Group ARN
+    Value: !Ref GatewayTargetGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-GatewayTargetGroupArn"
+
+  ServiceDiscoveryNamespaceId:
+    Description: Cloud Map Namespace ID
+    Value: !Ref ServiceDiscoveryNamespace
+    Export:
+      Name: !Sub "${AWS::StackName}-ServiceDiscoveryNamespaceId"
+
+  ServiceDiscoveryNamespaceName:
+    Description: Cloud Map Namespace Name (pch.local)
+    Value: !GetAtt ServiceDiscoveryNamespace.Name
+    Export:
+      Name: !Sub "${AWS::StackName}-ServiceDiscoveryNamespaceName"
+
+  TaskExecutionRoleArn:
+    Description: ECS Task Execution Role ARN
+    Value: !GetAtt EcsTaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-TaskExecutionRoleArn"
+
+  TaskRoleArn:
+    Description: ECS Task Role ARN (general services)
+    Value: !GetAtt EcsTaskRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-TaskRoleArn"
+
+  FileServiceTaskRoleArn:
+    Description: ECS Task Role ARN for file-service (S3 access)
+    Value: !GetAtt EcsFileServiceTaskRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FileServiceTaskRoleArn"
+
+  # ECR Repository URIs
+  EcrDiscoveryUri:
+    Value: !GetAtt EcrDiscovery.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrDiscoveryUri"
+
+  EcrGatewayUri:
+    Value: !GetAtt EcrGateway.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrGatewayUri"
+
+  EcrAuthServiceUri:
+    Value: !GetAtt EcrAuthService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrAuthServiceUri"
+
+  EcrProjectServiceUri:
+    Value: !GetAtt EcrProjectService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrProjectServiceUri"
+
+  EcrIssueServiceUri:
+    Value: !GetAtt EcrIssueService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrIssueServiceUri"
+
+  EcrBoardReportServiceUri:
+    Value: !GetAtt EcrBoardReportService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrBoardReportServiceUri"
+
+  EcrSearchServiceUri:
+    Value: !GetAtt EcrSearchService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrSearchServiceUri"
+
+  EcrNotificationServiceUri:
+    Value: !GetAtt EcrNotificationService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrNotificationServiceUri"
+
+  EcrFileServiceUri:
+    Value: !GetAtt EcrFileService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrFileServiceUri"
+
+  EcrIntegrationServiceUri:
+    Value: !GetAtt EcrIntegrationService.RepositoryUri
+    Export:
+      Name: !Sub "${AWS::StackName}-EcrIntegrationServiceUri"

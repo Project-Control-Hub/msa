@@ -1,0 +1,562 @@
+name: CD — ECS Fargate
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "monitoring/**"
+      - "load-tests/**"
+      - "chaos-tests/**"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      services:
+        description: "Services to deploy (comma-separated, or 'all')"
+        required: false
+        default: all
+      image_tag:
+        description: "Image tag override (default: git SHA)"
+        required: false
+        default: ""
+      skip_build:
+        description: "Skip Docker build (redeploy existing image)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: cd-ecs-${{ github.ref }}-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false  # Never cancel an in-flight deploy
+
+# ──────────────────────────────────────────────
+#  Environment-level settings
+# ──────────────────────────────────────────────
+env:
+  AWS_REGION: ap-northeast-2
+  # These are resolved per-job using the 'environment' input
+  DEPLOY_ENV: ${{ inputs.environment || 'dev' }}
+
+# ──────────────────────────────────────────────
+#  Permissions (OIDC)
+# ──────────────────────────────────────────────
+permissions:
+  id-token: write   # Required for OIDC authentication
+  contents: read
+  packages: read
+
+jobs:
+  # ────────────────────────────────────────────
+  #  1. Resolve deployment context
+  # ────────────────────────────────────────────
+  context:
+    name: Resolve deployment context
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.ctx.outputs.environment }}
+      image_tag: ${{ steps.ctx.outputs.image_tag }}
+      services: ${{ steps.ctx.outputs.services }}
+      aws_account_id: ${{ steps.ctx.outputs.aws_account_id }}
+      ecr_registry: ${{ steps.ctx.outputs.ecr_registry }}
+      matrix: ${{ steps.ctx.outputs.matrix }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve context
+        id: ctx
+        run: |
+          ENVIRONMENT="${{ inputs.environment || 'dev' }}"
+          IMAGE_TAG="${{ inputs.image_tag || github.sha }}"
+          IMAGE_TAG="${IMAGE_TAG:0:8}"   # short SHA
+
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+
+          # Build service matrix
+          ALL_SERVICES='["pch-discovery","pch-gateway","pch-auth-service","pch-project-service","pch-issue-service","pch-board-report-service","pch-search-service","pch-notification-service","pch-file-service","pch-integration-service"]'
+
+          if [[ "${{ inputs.services }}" == "all" || -z "${{ inputs.services }}" ]]; then
+            MATRIX="$ALL_SERVICES"
+          else
+            # Convert comma-separated to JSON array
+            IFS=',' read -ra SVCS <<< "${{ inputs.services }}"
+            MATRIX="[$(printf '"%s",' "${SVCS[@]}" | sed 's/,$//')]"
+          fi
+
+          echo "environment=${ENVIRONMENT}"        >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}"            >> "$GITHUB_OUTPUT"
+          echo "aws_account_id=${AWS_ACCOUNT_ID}"  >> "$GITHUB_OUTPUT"
+          echo "ecr_registry=${ECR_REGISTRY}"      >> "$GITHUB_OUTPUT"
+          echo "matrix=${MATRIX}"                  >> "$GITHUB_OUTPUT"
+          echo "services=${{ inputs.services || 'all' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Print deployment plan
+        run: |
+          echo "### Deployment Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | ${{ steps.ctx.outputs.environment }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image Tag | \`${{ steps.ctx.outputs.image_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Services | ${{ steps.ctx.outputs.services }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ECR Registry | ${{ steps.ctx.outputs.ecr_registry }} |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────
+  #  2. Build & Push Docker images (parallel matrix)
+  # ────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: context
+    if: ${{ !inputs.skip_build }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.context.outputs.matrix) }}
+
+    environment: ${{ needs.context.outputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="${{ matrix.service }}"
+          TAG="${{ needs.context.outputs.image_tag }}"
+          REGISTRY="${{ needs.context.outputs.ecr_registry }}"
+
+          REPO="${REGISTRY}/pch-msa/${ENV}/${SVC}"
+          echo "image_uri=${REPO}:${TAG}"      >> "$GITHUB_OUTPUT"
+          echo "image_latest=${REPO}:latest"   >> "$GITHUB_OUTPUT"
+          echo "repo=${REPO}"                  >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            SERVICE=${{ matrix.service }}
+          tags: |
+            ${{ steps.meta.outputs.image_uri }}
+            ${{ steps.meta.outputs.image_latest }}
+          cache-from: type=registry,ref=${{ steps.meta.outputs.image_latest }}
+          cache-to: type=inline
+          provenance: false
+
+      - name: Output image URI
+        run: |
+          echo "### Built Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.meta.outputs.image_uri }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────
+  #  3a. Deploy pch-discovery (first — others depend on it)
+  # ────────────────────────────────────────────
+  deploy-discovery:
+    name: Deploy pch-discovery
+    runs-on: ubuntu-latest
+    needs: [context, build]
+    if: |
+      always() &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      contains(fromJson(needs.context.outputs.matrix), 'pch-discovery')
+
+    environment: ${{ needs.context.outputs.environment }}
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy pch-discovery
+        uses: ./.github/actions/ecs-deploy
+        with:
+          service: pch-discovery
+          environment: ${{ needs.context.outputs.environment }}
+          image_tag: ${{ needs.context.outputs.image_tag }}
+          ecr_registry: ${{ needs.context.outputs.ecr_registry }}
+          aws_region: ${{ env.AWS_REGION }}
+        # Inline the steps since composite actions would need a separate file
+        # Expanded inline below:
+      - name: Update task definition — pch-discovery
+        id: update-td
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-discovery"
+          TAG="${{ needs.context.outputs.image_tag }}"
+          REGISTRY="${{ needs.context.outputs.ecr_registry }}"
+          IMAGE_URI="${REGISTRY}/pch-msa/${ENV}/${SVC}:${TAG}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+          CLUSTER="pch-msa-${ENV}"
+
+          # Get current task definition
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "$FAMILY" \
+            --query 'taskDefinition' \
+            --output json 2>/dev/null || echo "null")
+
+          if [[ "$TASK_DEF" == "null" ]]; then
+            echo "No task definition found for ${FAMILY} — skipping update"
+            echo "task_def_arn=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Register new revision with updated image
+          NEW_TD=$(echo "$TASK_DEF" | jq \
+            --arg img "$IMAGE_URI" \
+            '.containerDefinitions[0].image = $img
+             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,
+                   .placementConstraints,.compatibilities,.registeredAt,.registeredBy)')
+
+          TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TD" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "task_def_arn=${TASK_DEF_ARN}" >> "$GITHUB_OUTPUT"
+          echo "Registered: ${TASK_DEF_ARN}"
+
+      - name: Force new deployment — pch-discovery
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-discovery"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          TASK_DEF_ARN="${{ steps.update-td.outputs.task_def_arn }}"
+
+          ARGS=(--cluster "$CLUSTER" --service "$ECS_SERVICE" --force-new-deployment)
+          [[ -n "$TASK_DEF_ARN" ]] && ARGS+=(--task-definition "$TASK_DEF_ARN")
+
+          aws ecs update-service "${ARGS[@]}" \
+            --query 'service.{Status:status,Desired:desiredCount,Running:runningCount}' \
+            --output table
+
+      - name: Wait for pch-discovery stability
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-pch-discovery"
+          echo "Waiting for ${ECS_SERVICE} to stabilize..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$ECS_SERVICE"
+          echo "pch-discovery is stable"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-discovery"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+
+          CURRENT_REV=$(aws ecs describe-task-definition \
+            --task-definition "$FAMILY" \
+            --query 'taskDefinition.revision' --output text 2>/dev/null || echo "1")
+
+          if [[ "$CURRENT_REV" -gt 1 ]]; then
+            PREV="${FAMILY}:$((CURRENT_REV - 1))"
+            echo "Rolling back to ${PREV}"
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$ECS_SERVICE" \
+              --task-definition "$PREV" \
+              --force-new-deployment --output table > /dev/null
+          fi
+
+  # ────────────────────────────────────────────
+  #  3b. Deploy pch-gateway (depends on discovery)
+  # ────────────────────────────────────────────
+  deploy-gateway:
+    name: Deploy pch-gateway
+    runs-on: ubuntu-latest
+    needs: [context, build, deploy-discovery]
+    if: |
+      always() &&
+      (needs.deploy-discovery.result == 'success' || !contains(fromJson(needs.context.outputs.matrix), 'pch-discovery')) &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      contains(fromJson(needs.context.outputs.matrix), 'pch-gateway')
+
+    environment: ${{ needs.context.outputs.environment }}
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update task definition — pch-gateway
+        id: update-td
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-gateway"
+          TAG="${{ needs.context.outputs.image_tag }}"
+          REGISTRY="${{ needs.context.outputs.ecr_registry }}"
+          IMAGE_URI="${REGISTRY}/pch-msa/${ENV}/${SVC}:${TAG}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json 2>/dev/null || echo "null")
+          if [[ "$TASK_DEF" == "null" ]]; then
+            echo "task_def_arn=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NEW_TD=$(echo "$TASK_DEF" | jq \
+            --arg img "$IMAGE_URI" \
+            '.containerDefinitions[0].image = $img
+             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.placementConstraints,.compatibilities,.registeredAt,.registeredBy)')
+
+          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TD" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "task_def_arn=${TASK_DEF_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy & wait — pch-gateway
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-gateway"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          TASK_DEF_ARN="${{ steps.update-td.outputs.task_def_arn }}"
+
+          ARGS=(--cluster "$CLUSTER" --service "$ECS_SERVICE" --force-new-deployment)
+          [[ -n "$TASK_DEF_ARN" ]] && ARGS+=(--task-definition "$TASK_DEF_ARN")
+
+          aws ecs update-service "${ARGS[@]}" --query 'service.{Status:status}' --output table
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$ECS_SERVICE"
+          echo "pch-gateway is stable"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="pch-gateway"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+          CURRENT_REV=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition.revision' --output text 2>/dev/null || echo "1")
+          if [[ "$CURRENT_REV" -gt 1 ]]; then
+            PREV="${FAMILY}:$((CURRENT_REV - 1))"
+            aws ecs update-service --cluster "$CLUSTER" --service "$ECS_SERVICE" --task-definition "$PREV" --force-new-deployment --output table > /dev/null
+          fi
+
+  # ────────────────────────────────────────────
+  #  3c. Deploy remaining services (parallel, after gateway)
+  # ────────────────────────────────────────────
+  deploy-services:
+    name: Deploy ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [context, build, deploy-gateway]
+    if: |
+      always() &&
+      (needs.deploy-gateway.result == 'success' || !contains(fromJson(needs.context.outputs.matrix), 'pch-gateway')) &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - pch-auth-service
+          - pch-project-service
+          - pch-issue-service
+          - pch-board-report-service
+          - pch-search-service
+          - pch-notification-service
+          - pch-file-service
+          - pch-integration-service
+
+    environment: ${{ needs.context.outputs.environment }}
+
+    steps:
+      - name: Skip if not in deployment matrix
+        id: check-skip
+        run: |
+          MATRIX='${{ needs.context.outputs.matrix }}'
+          SVC="${{ matrix.service }}"
+          if echo "$MATRIX" | jq -e --arg s "$SVC" '. | index($s) != null' > /dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Service ${SVC} not in deployment matrix — skipping"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.check-skip.outputs.deploy == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update task definition — ${{ matrix.service }}
+        if: steps.check-skip.outputs.deploy == 'true'
+        id: update-td
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="${{ matrix.service }}"
+          TAG="${{ needs.context.outputs.image_tag }}"
+          REGISTRY="${{ needs.context.outputs.ecr_registry }}"
+          IMAGE_URI="${REGISTRY}/pch-msa/${ENV}/${SVC}:${TAG}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition "$FAMILY" --query 'taskDefinition' --output json 2>/dev/null || echo "null")
+          if [[ "$TASK_DEF" == "null" ]]; then
+            echo "No task definition for ${FAMILY} — skipping"
+            echo "task_def_arn=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NEW_TD=$(echo "$TASK_DEF" | jq \
+            --arg img "$IMAGE_URI" \
+            '.containerDefinitions[0].image = $img
+             | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.placementConstraints,.compatibilities,.registeredAt,.registeredBy)')
+
+          TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TD" --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "task_def_arn=${TASK_DEF_ARN}" >> "$GITHUB_OUTPUT"
+          echo "Registered: ${TASK_DEF_ARN}"
+
+      - name: Force new deployment — ${{ matrix.service }}
+        if: steps.check-skip.outputs.deploy == 'true'
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="${{ matrix.service }}"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          TASK_DEF_ARN="${{ steps.update-td.outputs.task_def_arn }}"
+
+          ARGS=(--cluster "$CLUSTER" --service "$ECS_SERVICE" --force-new-deployment)
+          [[ -n "$TASK_DEF_ARN" ]] && ARGS+=(--task-definition "$TASK_DEF_ARN")
+
+          aws ecs update-service "${ARGS[@]}" \
+            --query 'service.{Status:status,Desired:desiredCount,Running:runningCount}' \
+            --output table
+
+      - name: Wait for stability — ${{ matrix.service }}
+        if: steps.check-skip.outputs.deploy == 'true'
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="${{ matrix.service }}"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          echo "Waiting for ${ECS_SERVICE} to stabilize..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$ECS_SERVICE"
+          echo "${SVC} is stable"
+
+      - name: Rollback on failure — ${{ matrix.service }}
+        if: failure() && steps.check-skip.outputs.deploy == 'true'
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          SVC="${{ matrix.service }}"
+          CLUSTER="pch-msa-${ENV}"
+          ECS_SERVICE="pch-msa-${ENV}-${SVC}"
+          FAMILY="pch-msa-${ENV}-${SVC}"
+
+          CURRENT_REV=$(aws ecs describe-task-definition \
+            --task-definition "$FAMILY" \
+            --query 'taskDefinition.revision' --output text 2>/dev/null || echo "1")
+
+          if [[ "$CURRENT_REV" -gt 1 ]]; then
+            PREV="${FAMILY}:$((CURRENT_REV - 1))"
+            echo "Rolling back ${SVC} to ${PREV}"
+            aws ecs update-service \
+              --cluster "$CLUSTER" \
+              --service "$ECS_SERVICE" \
+              --task-definition "$PREV" \
+              --force-new-deployment --output table > /dev/null
+          fi
+
+  # ────────────────────────────────────────────
+  #  4. Deployment summary
+  # ────────────────────────────────────────────
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [context, build, deploy-discovery, deploy-gateway, deploy-services]
+    if: always()
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+        continue-on-error: true
+
+      - name: Show ECS service status
+        run: |
+          ENV="${{ needs.context.outputs.environment }}"
+          CLUSTER="pch-msa-${ENV}"
+          SERVICES=(
+            "pch-msa-${ENV}-pch-discovery"
+            "pch-msa-${ENV}-pch-gateway"
+            "pch-msa-${ENV}-pch-auth-service"
+            "pch-msa-${ENV}-pch-project-service"
+            "pch-msa-${ENV}-pch-issue-service"
+            "pch-msa-${ENV}-pch-board-report-service"
+            "pch-msa-${ENV}-pch-search-service"
+            "pch-msa-${ENV}-pch-notification-service"
+            "pch-msa-${ENV}-pch-file-service"
+            "pch-msa-${ENV}-pch-integration-service"
+          )
+
+          echo "### ECS Service Status — ${ENV}" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | Status | Desired | Running | Pending |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---------|--------|---------|---------|---------|" >> "$GITHUB_STEP_SUMMARY"
+
+          STATUS_JSON=$(aws ecs describe-services \
+            --cluster "$CLUSTER" \
+            --services "${SERVICES[@]}" \
+            --query 'services[*].{name:serviceName,status:status,desired:desiredCount,running:runningCount,pending:pendingCount}' \
+            --output json 2>/dev/null || echo "[]")
+
+          echo "$STATUS_JSON" | jq -r '.[] | "| \(.name) | \(.status) | \(.desired) | \(.running) | \(.pending) |"' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Determine overall result
+        run: |
+          BUILD_RESULT="${{ needs.build.result }}"
+          DISC_RESULT="${{ needs.deploy-discovery.result }}"
+          GW_RESULT="${{ needs.deploy-gateway.result }}"
+          SVCS_RESULT="${{ needs.deploy-services.result }}"
+
+          echo "### Job Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build | ${BUILD_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Deploy pch-discovery | ${DISC_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Deploy pch-gateway | ${GW_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Deploy remaining services | ${SVCS_RESULT} |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$DISC_RESULT" == "failure" || "$GW_RESULT" == "failure" ]]; then
+            echo "CRITICAL: Core services failed to deploy" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

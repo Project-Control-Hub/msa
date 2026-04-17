@@ -1,0 +1,200 @@
+name: CD — Kubernetes Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Space-separated list of services to build/deploy (leave empty for all)"
+        required: false
+        default: ""
+      skip_build:
+        description: "Skip Docker build and push (deploy only)"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/pch-msa
+
+jobs:
+  # ── Job 1: Detect changed services ──────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Services
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      all_services: ${{ steps.set-matrix.outputs.all_services }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed services
+        id: set-matrix
+        run: |
+          ALL_SERVICES='["pch-discovery","pch-gateway","pch-auth-service","pch-project-service","pch-issue-service","pch-board-report-service","pch-search-service","pch-notification-service","pch-file-service","pch-integration-service"]'
+
+          # If manually specified, use those
+          if [[ -n "${{ github.event.inputs.services }}" ]]; then
+            CHANGED='${{ github.event.inputs.services }}'
+            JSON_ARRAY="[$(echo "$CHANGED" | tr ' ' '\n' | sed 's/.*/\"&\"/' | tr '\n' ',' | sed 's/,$//')]"
+            echo "matrix={\"service\":${JSON_ARRAY}}" >> "$GITHUB_OUTPUT"
+            echo "all_services=${ALL_SERVICES}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # On push to main, check which service modules changed
+          CHANGED_SERVICES=()
+          for svc in pch-discovery pch-gateway pch-auth-service pch-project-service \
+                     pch-issue-service pch-board-report-service pch-search-service \
+                     pch-notification-service pch-file-service pch-integration-service; do
+            if git diff --name-only HEAD~1 HEAD | grep -qE "^(${svc}/|pch-common/|Dockerfile|build\.gradle|settings\.gradle)"; then
+              CHANGED_SERVICES+=("\"${svc}\"")
+            fi
+          done
+
+          # If Dockerfile, common lib, or build config changed — rebuild all
+          if git diff --name-only HEAD~1 HEAD | grep -qE "^(Dockerfile|pch-common/|build\.gradle|settings\.gradle|gradle/)"; then
+            echo "Core files changed — rebuilding all services."
+            echo "matrix={\"service\":$(echo $ALL_SERVICES)}" >> "$GITHUB_OUTPUT"
+          elif [[ ${#CHANGED_SERVICES[@]} -eq 0 ]]; then
+            # No service changes detected — build all to be safe
+            echo "No specific service changes detected — building all."
+            echo "matrix={\"service\":$(echo $ALL_SERVICES)}" >> "$GITHUB_OUTPUT"
+          else
+            JSON_ARRAY="[$(IFS=,; echo "${CHANGED_SERVICES[*]}")]"
+            echo "matrix={\"service\":${JSON_ARRAY}}" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "all_services=${ALL_SERVICES}" >> "$GITHUB_OUTPUT"
+
+  # ── Job 2: Build & Push Docker images ────────────────────────────────────────
+  build-and-push:
+    name: Build & Push — ${{ matrix.service }}
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.skip_build != 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          build-args: |
+            SERVICE=${{ matrix.service }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ── Job 3: Deploy to Kubernetes ───────────────────────────────────────────────
+  deploy:
+    name: Deploy to Kubernetes
+    needs:
+      - detect-changes
+      - build-and-push
+    runs-on: ubuntu-latest
+    # Run even if build-and-push was skipped (skip_build=true)
+    if: always() && (needs.build-and-push.result == 'success' || needs.build-and-push.result == 'skipped')
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "latest"
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Verify cluster connectivity
+        run: kubectl cluster-info --request-timeout=10s
+
+      - name: Apply manifests via Kustomize
+        run: |
+          kubectl apply -k deploy/k8s/ --timeout=120s
+
+      - name: Update image tags to latest SHA
+        run: |
+          SHA="${{ github.sha }}"
+          SHORT_SHA="${SHA:0:7}"
+
+          # Patch each service deployment with the new image SHA tag
+          for SERVICE in pch-discovery pch-gateway pch-auth-service pch-project-service \
+                         pch-issue-service pch-board-report-service pch-search-service \
+                         pch-notification-service pch-file-service pch-integration-service; do
+            NEW_IMAGE="${{ env.IMAGE_PREFIX }}/${SERVICE}:sha-${SHORT_SHA}"
+            echo "Updating ${SERVICE} -> ${NEW_IMAGE}"
+            kubectl set image deployment/"${SERVICE}" \
+              "${SERVICE}"="${NEW_IMAGE}" \
+              -n pch \
+              --record=false || echo "Skipped ${SERVICE} (not in changed set or not found)"
+          done
+
+      - name: Wait for rolling updates to complete
+        run: |
+          echo "Waiting for all deployments to roll out..."
+          for SERVICE in pch-discovery pch-gateway pch-auth-service pch-project-service \
+                         pch-issue-service pch-board-report-service pch-search-service \
+                         pch-notification-service pch-file-service pch-integration-service; do
+            kubectl rollout status deployment/"${SERVICE}" \
+              -n pch \
+              --timeout=300s || {
+              echo "Rollout failed for ${SERVICE}. Fetching logs..."
+              kubectl logs -l "app.kubernetes.io/name=${SERVICE}" -n pch --tail=50 || true
+              exit 1
+            }
+          done
+          echo "All deployments rolled out successfully."
+
+      - name: Print deployment summary
+        run: |
+          echo "=== Deployment Summary ==="
+          kubectl get pods -n pch -o wide
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n pch
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress -n pch

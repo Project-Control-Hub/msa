@@ -1,0 +1,536 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  PCH MSA — VPC Network Stack.
+  Creates VPC, public/private subnets, Internet Gateway, NAT Gateway,
+  and security groups for ALB, ECS tasks, RDS, ElastiCache, and MSK.
+
+# ──────────────────────────────────────────────
+#  Parameters
+# ──────────────────────────────────────────────
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+    Default: dev
+    Description: Deployment environment
+
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    Description: CIDR block for the VPC
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: "10.0.1.0/24"
+
+  PublicSubnet2Cidr:
+    Type: String
+    Default: "10.0.2.0/24"
+
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: "10.0.10.0/24"
+
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: "10.0.11.0/24"
+
+# ──────────────────────────────────────────────
+#  Mappings
+# ──────────────────────────────────────────────
+Mappings:
+  EnvironmentConfig:
+    dev:
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      SingleNatGateway: true
+    staging:
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      SingleNatGateway: true
+    prod:
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      SingleNatGateway: false
+
+# ──────────────────────────────────────────────
+#  Conditions
+# ──────────────────────────────────────────────
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+  # For prod we could spin up a second NAT GW; kept simple here with one NAT per stack.
+
+# ──────────────────────────────────────────────
+#  Resources
+# ──────────────────────────────────────────────
+Resources:
+
+  # ── VPC ──────────────────────────────────────
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-vpc"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Internet Gateway ──────────────────────────
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-igw"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ── Public Subnets ────────────────────────────
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-public-1"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Tier
+          Value: public
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-public-2"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Tier
+          Value: public
+
+  # ── Private Subnets ───────────────────────────
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-private-1"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Tier
+          Value: private
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-private-2"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Tier
+          Value: private
+
+  # ── NAT Gateway (single; add second for prod HA) ──
+  NatEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-nat-eip"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-natgw"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Route Tables ──────────────────────────────
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-public-rt"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-private-rt"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  PrivateSubnet1RouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteTableAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ── Security Group: ALB ───────────────────────
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-alb-sg"
+      GroupDescription: Allow HTTP/HTTPS traffic to the Application Load Balancer
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: HTTP from internet
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+          Description: HTTPS from internet
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-alb-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Security Group: ECS Tasks ─────────────────
+  EcsTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-ecs-tasks-sg"
+      GroupDescription: Allow traffic from ALB to ECS tasks; allow inter-service communication
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8089
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: From ALB to service ports
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8089
+          SourceSecurityGroupId: !GetAtt [EcsTaskSecurityGroup, GroupId]
+          # Self-reference requires a separate egress rule; handled below.
+          Description: Inter-service communication (placeholder — see ingress rule below)
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound (internet via NAT, AWS APIs, etc.)
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-ecs-tasks-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Self-referencing ingress for inter-service calls
+  EcsTaskSelfIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EcsTaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8000
+      ToPort: 8089
+      SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+      Description: Allow ECS tasks to call each other
+
+  # ── Security Group: RDS ───────────────────────
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-rds-sg"
+      GroupDescription: Allow MySQL access from ECS tasks only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: MySQL from ECS tasks
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-rds-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Security Group: ElastiCache (Redis) ────────
+  ElastiCacheSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-redis-sg"
+      GroupDescription: Allow Redis access from ECS tasks only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: Redis from ECS tasks
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-redis-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Security Group: MSK (Kafka) ───────────────
+  MskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-msk-sg"
+      GroupDescription: Allow Kafka access from ECS tasks only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9092
+          ToPort: 9092
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: Kafka plaintext from ECS tasks
+        - IpProtocol: tcp
+          FromPort: 9094
+          ToPort: 9094
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: Kafka TLS from ECS tasks
+        - IpProtocol: tcp
+          FromPort: 9098
+          ToPort: 9098
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: Kafka SASL/TLS from ECS tasks
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-msk-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ── Security Group: OpenSearch ────────────────
+  OpenSearchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "pch-msa-${Environment}-opensearch-sg"
+      GroupDescription: Allow OpenSearch access from ECS tasks only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: OpenSearch HTTPS from ECS tasks
+        - IpProtocol: tcp
+          FromPort: 9200
+          ToPort: 9200
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          Description: OpenSearch HTTP from ECS tasks
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+          Description: All outbound
+      Tags:
+        - Key: Name
+          Value: !Sub "pch-msa-${Environment}-opensearch-sg"
+        - Key: Project
+          Value: pch-msa
+        - Key: Environment
+          Value: !Ref Environment
+
+# ──────────────────────────────────────────────
+#  Outputs (exported for cross-stack references)
+# ──────────────────────────────────────────────
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcId"
+
+  VpcCidr:
+    Description: VPC CIDR block
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-VpcCidr"
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet1Id"
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnet2Id"
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet1Id"
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnet2Id"
+
+  PrivateSubnetIds:
+    Description: Comma-separated private subnet IDs
+    Value: !Sub "${PrivateSubnet1},${PrivateSubnet2}"
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetIds"
+
+  PublicSubnetIds:
+    Description: Comma-separated public subnet IDs
+    Value: !Sub "${PublicSubnet1},${PublicSubnet2}"
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetIds"
+
+  AlbSecurityGroupId:
+    Description: ALB Security Group ID
+    Value: !Ref AlbSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-AlbSecurityGroupId"
+
+  EcsTaskSecurityGroupId:
+    Description: ECS Task Security Group ID
+    Value: !Ref EcsTaskSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-EcsTaskSecurityGroupId"
+
+  RdsSecurityGroupId:
+    Description: RDS Security Group ID
+    Value: !Ref RdsSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-RdsSecurityGroupId"
+
+  ElastiCacheSecurityGroupId:
+    Description: ElastiCache Security Group ID
+    Value: !Ref ElastiCacheSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ElastiCacheSecurityGroupId"
+
+  MskSecurityGroupId:
+    Description: MSK Security Group ID
+    Value: !Ref MskSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-MskSecurityGroupId"
+
+  OpenSearchSecurityGroupId:
+    Description: OpenSearch Security Group ID
+    Value: !Ref OpenSearchSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-OpenSearchSecurityGroupId"

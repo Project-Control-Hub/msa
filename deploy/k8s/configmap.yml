@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pch-common-config
+  namespace: pch
+  labels:
+    app.kubernetes.io/part-of: pch-msa
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+
+  # Eureka Discovery
+  EUREKA_URI: "http://pch-discovery:8761/eureka"
+
+  # Kafka
+  KAFKA_BOOTSTRAP_SERVERS: "pch-kafka:9092"
+
+  # Redis
+  REDIS_HOST: "pch-redis"
+  REDIS_PORT: "6379"
+
+  # MySQL
+  MYSQL_HOST: "pch-mysql"
+  MYSQL_PORT: "3306"
+
+  # Elasticsearch
+  ELASTICSEARCH_URIS: "http://pch-elasticsearch:9200"

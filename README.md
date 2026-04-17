@@ -10,6 +10,8 @@
 ![Elasticsearch](https://img.shields.io/badge/Elasticsearch-8.x-005571?style=flat-square&logo=elasticsearch&logoColor=white)
 ![Kafka](https://img.shields.io/badge/Kafka-KRaft-231F20?style=flat-square&logo=apachekafka&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-326CE5?style=flat-square&logo=kubernetes&logoColor=white)
+![AWS ECS](https://img.shields.io/badge/AWS_ECS-FF9900?style=flat-square&logo=amazonecs&logoColor=white)
 ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat-square&logo=grafana&logoColor=white)
 
@@ -29,6 +31,7 @@
 - [모니터링 & Observability](#-모니터링--observability)
 - [기여 가이드](#-기여-가이드)
 - [배포](#-배포)
+- [배포 가이드](#-배포-가이드)
 - [문서](#-문서)
 
 ---
@@ -65,21 +68,21 @@ PCH(Project Control Hub)는 이슈 트래킹, 스프린트 보드, JQL 검색, �
          ┌──────────┬────────────┼────────────┬──────────┐
          │          │            │            │          │
     ┌────▼────┐ ┌───▼────┐ ┌────▼────┐ ┌────▼────┐ ┌───▼───┐
-    │  Auth   │ │Project │ │ Issue   │ │ Search  │ │Board &│
-    │ Service │ │Service │ │ Service │ │ Service │ │Report │
-    │  :8081  │ │ :8082  │ │  :8083  │ │  :8084  │ │ :8085 │
-    └─────────┘ └────────┘ └────┬────┘ └────▲────┘ └───▲───┘
-                                │            │          │
-                           ┌────▼────────────┴──────────┴───┐
-                           │        Kafka (KRaft)           │
-                           │   10 Topics · Event Envelope   │
-                           └────────────────────────────────┘
+    │  Auth   │ │Project │ │ Issue   │ │Board & │ │Search │
+    │ Service │ │Service │ │ Service │ │Report  │ │Service│
+    │  :8081  │ │ :8082  │ │  :8083  │ │  :8084 │ │ :8085 │
+    └─────────┘ └────────┘ └────┬────┘ └────▲───┘ └───▲──┘
+                                │            │         │
+                           ┌────▼────────────┴─────────┴───┐
+                           │        Kafka (KRaft)          │
+                           │   10 Topics · Event Envelope  │
+                           └───────────────────────────────┘
          ┌──────────┬──────────┐
-    ┌────▼────┐ ┌───▼────┐ ┌───▼─────────┐
-    │  File   │ │Notifi- │ │ Integration │
-    │ Service │ │cation  │ │   Service   │
-    │  :8086  │ │ :8087  │ │   :8088     │
-    └─────────┘ └────────┘ └─────────────┘
+    ┌────▼────┐ ┌───▼─────┐ ┌──▼──────────┐
+    │ Notifi- │ │  File   │ │ Integration │
+    │ cation  │ │ Service │ │   Service   │
+    │  :8086  │ │  :8087  │ │   :8088     │
+    └─────────┘ └─────────┘ └─────────────┘
 
     ┌──────────┐    ┌──────┐    ┌──────────────┐    ┌───────┐
     │  MySQL   │    │Redis │    │Elasticsearch │    │Eureka │
@@ -105,8 +108,9 @@ PCH(Project Control Hub)는 이슈 트래킹, 스프린트 보드, JQL 검색, �
 | Monitoring | Prometheus + Grafana + AlertManager |
 | Logging | Loki + Promtail (JSON 구조화 로그) |
 | Tracing | Tempo (OTLP, Exemplar 연동) |
-| Container | Docker, Docker Compose |
-| CI/CD | GitHub Actions |
+| Container | Docker, Docker Compose, Kubernetes, AWS ECS Fargate |
+| IaC | CloudFormation, Kustomize |
+| CI/CD | GitHub Actions (CI + CD 3종) |
 | Build | Gradle 8.x (Multi-module) |
 
 ---
@@ -224,12 +228,18 @@ pch-msa/
 ├── pch-notification-service/      # 이벤트 기반 다채널 알림
 ├── pch-file-service/              # S3/Local 파일 관리
 ├── pch-integration-service/       # GitHub OAuth, Webhook 연동
-├── docker/                        # Docker Compose, DB 초기화 스크립트
+├── docker/                        # Docker Compose (로컬 인프라), DB 초기화 스크립트
+├── deploy/
+│   ├── docker-compose/            # Docker Compose 프로덕션 배포
+│   ├── k8s/                       # Kubernetes 매니페스트 (Kustomize)
+│   └── ecs/                       # AWS ECS Fargate (CloudFormation)
 ├── load-tests/                    # k6 부하 테스트 (4종 시나리오)
 ├── chaos-tests/                   # Chaos Engineering 장애 주입 (5종)
 ├── monitoring/                    # Prometheus, Grafana, Loki, Tempo, AlertManager
-├── docs/                          # 설계 문서, 워크플로우, 검증 보고서 (64개)
-├── .github/workflows/             # CI/CD (ci.yml, pr-validate.yml)
+├── docs/                          # 설계 문서, 워크플로우, 검증 보고서
+├── .github/workflows/             # CI (ci.yml, pr-validate.yml) + CD 3종
+├── Dockerfile                     # 멀티 스테이지 빌드 (전 서비스 공용)
+├── .dockerignore                  # Docker 빌드 제외 파일
 ├── .env.example                   # 환경변수 템플릿
 ├── build.gradle                   # 루트 Gradle (멀티모듈)
 └── settings.gradle                # 모듈 정의
@@ -408,36 +418,84 @@ perf:     성능 개선
 
 ## 🚢 배포
 
-### GitHub Actions CI/CD
+3가지 배포 환경을 지원하며, 각 환경별 상세 가이드를 제공합니다.
 
-```
-Push / PR to develop
-    ↓
-ci.yml: Java 21 빌드 + 테스트 (MySQL/Redis 컨테이너)
-    ↓
-pr-validate.yml: Conventional Commits 검증
-    ↓
-Merge → develop
-```
+> **종합 비교 가이드**: [docs/guides/deployment.md](docs/guides/deployment.md)
 
-### Docker Compose 배포
+### 배포 옵션 비교
+
+| 항목 | Docker Compose | Kubernetes | AWS ECS Fargate |
+|------|---------------|------------|-----------------|
+| **적합 환경** | 단일 서버, 소규모 | 멀티 노드, 대규모 | AWS 클라우드 네이티브 |
+| **인프라 관리** | 직접 관리 | 직접 관리 (또는 관리형 K8s) | AWS 관리형 |
+| **오토스케일링** | 수동 | HPA/VPA | ECS Auto Scaling |
+| **운영 복잡도** | 낮음 | 높음 | 중간 |
+
+### Docker Compose 단독 배포
 
 ```bash
-# 전체 스택 기동
-docker compose -f docker/docker-compose.yml up -d --build
-
-# 특정 서비스만 재배포
-docker compose up -d --no-deps --build pch-issue-service
-
-# 롤백
-docker compose up -d --no-deps pch-issue-service:previous-tag
+cd deploy/docker-compose
+cp .env.prod.example .env   # 환경변수 설정
+./deploy.sh                  # 전체 스택 빌드 + 배포
 ```
+
+상세 가이드: [deploy/docker-compose/README.md](deploy/docker-compose/README.md)
+
+### Kubernetes 배포 (Minikube 포함)
+
+```bash
+cd deploy/k8s
+./minikube-setup.sh          # Minikube 원클릭 셋업
+# 또는
+kubectl apply -k .           # Kustomize로 매니페스트 적용
+```
+
+상세 가이드: [deploy/k8s/README.md](deploy/k8s/README.md)
+
+### AWS ECS Fargate 배포
+
+```bash
+cd deploy/ecs/scripts
+./setup-params.sh --env dev  # SSM 파라미터 초기화
+./deploy.sh --env dev        # ECR 푸시 + ECS 배포
+```
+
+상세 가이드: [deploy/ecs/README.md](deploy/ecs/README.md)
+
+### CI/CD 파이프라인
+
+| 워크플로우 | 트리거 | 역할 |
+|-----------|--------|------|
+| `ci.yml` | push/PR → main, develop | 빌드, 테스트, 린트, Docker Compose 검증 |
+| `pr-validate.yml` | PR 생성/수정 | Conventional Commits 제목 검증 |
+| `cd-docker-compose.yml` | push → main | ghcr.io 빌드 → SSH 서버 배포 |
+| `cd-k8s.yml` | push → main | ghcr.io 빌드 → kubectl 롤링 업데이트 |
+| `cd-ecs.yml` | push → main | ECR 빌드 → ECS Fargate 순차 배포 |
+
+### Docker 이미지 빌드
+
+모든 배포 방식에서 프로젝트 루트의 공통 `Dockerfile`을 사용합니다:
+
+```bash
+docker build --build-arg SERVICE=pch-auth-service -t pch-auth-service .
+```
+
+---
+
+## 📖 배포 가이드
+
+| 가이드 | 내용 |
+|--------|------|
+| [Docker Compose 배포](deploy/docker-compose/README.md) | 환경설정, 실행, 스케일링, 운영, 트러블슈팅 |
+| [Kubernetes 배포](deploy/k8s/README.md) | Minikube 원클릭 셋업, 클라우드 K8s, 리소스 사양, 운영 명령어 |
+| [AWS ECS Fargate 배포](deploy/ecs/README.md) | CloudFormation 4단계, SSM 파라미터, OIDC CD, 비용 최적화 |
+| [배포 전략 종합 비교](docs/guides/deployment.md) | 3가지 옵션 비교, 환경별 권장, 공통 아키텍처, 시크릿/모니터링 비교 |
 
 ---
 
 ## 📚 문서
 
-> **전체 64개 문서** — `docs/` 디렉토리
+> `docs/` 디렉토리 + 배포 가이드
 
 | 카테고리 | 문서 수 | 설명 |
 |---------|:------:|------|
@@ -447,8 +505,9 @@ docker compose up -d --no-deps pch-issue-service:previous-tag
 | Phase 3: CQRS | 7 | Search, Board & Report, 통합 검증 |
 | Phase 4: 안정화 | 10 | 부하 테스트, Chaos, 모니터링, GA 준비 |
 | Architecture | 4 | 서비스 통신, API 계약, 이벤트 카탈로그, 데이터 전략 |
-| Guides | 4 | 로컬 개발, 코딩 컨벤션, PromQL, Loki+Tempo |
+| Guides | 5 | 로컬 개발, 코딩 컨벤션, PromQL, Loki+Tempo, **배포 전략 종합** |
 | Verification | 7 | Phase별 통합 검증 보고서 + GA 체크리스트 |
+| Deploy Guides | 3 | [Docker Compose](deploy/docker-compose/README.md), [Kubernetes](deploy/k8s/README.md), [AWS ECS](deploy/ecs/README.md) |
 
 전체 목차: [docs/INDEX.md](docs/INDEX.md) · 진행 현황: [docs/PROGRESS.md](docs/PROGRESS.md)
 
